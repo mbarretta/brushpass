@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { FileRecord } from '@/types';
+import type { FileRecord, DownloadLog } from '@/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -77,4 +77,26 @@ export function getFileByMd5(md5: string): FileRecord | undefined {
 export function getFileById(id: number): FileRecord | undefined {
   const db = getDb();
   return db.prepare<[number], FileRecord>('SELECT * FROM files WHERE id = ?').get(id);
+}
+
+export function logDownload(fileId: number): void {
+  const db = getDb();
+  db.prepare<[number]>('INSERT INTO download_logs (file_id) VALUES (?)').run(fileId);
+}
+
+export function getDownloadCount(fileId: number): number {
+  const db = getDb();
+  const row = db
+    .prepare<[number], { 'COUNT(*)': number }>('SELECT COUNT(*) FROM download_logs WHERE file_id = ?')
+    .get(fileId);
+  return row ? row['COUNT(*)'] : 0;
+}
+
+export function getDownloadLogs(fileId: number): DownloadLog[] {
+  const db = getDb();
+  return db
+    .prepare<[number], DownloadLog>(
+      'SELECT * FROM download_logs WHERE file_id = ? ORDER BY downloaded_at DESC',
+    )
+    .all(fileId);
 }
