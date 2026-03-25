@@ -119,6 +119,11 @@ export function updateFileExpiry(id: number, expiresAt: number | null): void {
   db.prepare<[number | null, number]>('UPDATE files SET expires_at = ? WHERE id = ?').run(expiresAt, id);
 }
 
+export function updateFileTokenHash(id: number, hash: string): void {
+  const db = getDb();
+  db.prepare<[string, number]>('UPDATE files SET token_hash = ? WHERE id = ?').run(hash, id);
+}
+
 export function deleteFile(id: number): void {
   const db = getDb();
   db.prepare<[number]>('DELETE FROM files WHERE id = ?').run(id);
