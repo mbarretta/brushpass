@@ -1,4 +1,5 @@
 import { Storage } from '@google-cloud/storage';
+import { Readable } from 'stream';
 
 const bucketName = process.env.GCS_BUCKET;
 if (!bucketName) throw new Error('GCS_BUCKET env var is required');
@@ -27,8 +28,8 @@ export async function deleteFromGCS(gcsKey: string): Promise<void> {
   await bucket.file(gcsKey).delete();
 }
 
-export function getGCSReadStream(gcsKey: string): NodeJS.ReadableStream {
-  return bucket.file(gcsKey).createReadStream();
+export function getGCSReadStream(gcsKey: string): Readable {
+  return bucket.file(gcsKey).createReadStream() as unknown as Readable;
 }
 
 /** Rename a GCS object from oldKey to newKey. Returns the new key. */

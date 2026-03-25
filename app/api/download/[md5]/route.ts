@@ -63,7 +63,7 @@ export async function GET(
     // Open GCS read stream and convert to Web ReadableStream
     phase = 'gcs-stream';
     const nodeStream = getGCSReadStream(record.gcs_key);
-    const webStream = Readable.toWeb(nodeStream) as ReadableStream;
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
 
     console.log('[download] file=%d md5=%s', record.id, md5);
 
