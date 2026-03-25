@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { FileRecord, DownloadLog } from '@/types';
+import type { FileRecord, DownloadLog, User, Permission } from '@/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -122,4 +122,36 @@ export function updateFileExpiry(id: number, expiresAt: number | null): void {
 export function deleteFile(id: number): void {
   const db = getDb();
   db.prepare<[number]>('DELETE FROM files WHERE id = ?').run(id);
+}
+
+// Raw DB row shape for users — permissions is a JSON string before parsing
+interface DbUserRow {
+  id: number;
+  username: string;
+  password_hash: string;
+  permissions: string;
+  created_at: number;
+}
+
+function parseUser(row: DbUserRow): User {
+  return {
+    ...row,
+    permissions: JSON.parse(row.permissions) as Permission[],
+  };
+}
+
+export function getUserByUsername(username: string): User | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<[string], DbUserRow>('SELECT * FROM users WHERE username = ?')
+    .get(username);
+  return row ? parseUser(row) : undefined;
+}
+
+export function getUserById(id: number): User | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<[number], DbUserRow>('SELECT * FROM users WHERE id = ?')
+    .get(id);
+  return row ? parseUser(row) : undefined;
 }
