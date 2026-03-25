@@ -124,6 +124,15 @@ export function deleteFile(id: number): void {
   db.prepare<[number]>('DELETE FROM files WHERE id = ?').run(id);
 }
 
+export function getExpiredFiles(): FileRecord[] {
+  const db = getDb();
+  return db
+    .prepare<[], FileRecord>(
+      'SELECT * FROM files WHERE expires_at IS NOT NULL AND expires_at < unixepoch() ORDER BY expires_at ASC',
+    )
+    .all();
+}
+
 // Raw DB row shape for users — permissions is a JSON string before parsing
 interface DbUserRow {
   id: number;
