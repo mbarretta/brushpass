@@ -82,7 +82,7 @@ const config: NextAuthConfig = {
 
         // Import DB helpers inside authorize() — never at module init time.
         // better-sqlite3 is a native Node module incompatible with Edge runtime;
-        // keeping the import lazy ensures this file can be loaded on Edge for middleware.
+        // keeping the import lazy ensures this file can be loaded on Edge for proxy.
         const { getUserByUsername } = await import('@/lib/db');
         const { verifyToken } = await import('@/lib/token');
 

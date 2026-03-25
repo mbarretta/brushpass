@@ -17,6 +17,8 @@ function isPublicRoute(pathname: string): boolean {
   // Download route: /[md5] — single path segment, no further nesting
   // Matches paths like /abc123def456... but NOT /admin or /upload
   if (/^\/[a-f0-9]{32}(\?.*)?$/i.test(pathname)) return true;
+  // Generic download form page
+  if (pathname === '/download') return true;
   // Download API
   if (pathname.startsWith('/api/download/')) return true;
   return false;
@@ -30,7 +32,7 @@ function requiresUpload(pathname: string): boolean {
   return pathname === '/upload' || pathname.startsWith('/api/upload');
 }
 
-export default auth(async function middleware(req) {
+export default auth(async function proxy(req) {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
