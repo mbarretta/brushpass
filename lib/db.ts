@@ -155,3 +155,57 @@ export function getUserById(id: number): User | undefined {
     .get(id);
   return row ? parseUser(row) : undefined;
 }
+
+export function listUsers(): User[] {
+  const db = getDb();
+  const rows = db.prepare<[], DbUserRow>('SELECT * FROM users ORDER BY id ASC').all();
+  return rows.map(parseUser);
+}
+
+export function createUser(data: {
+  username: string;
+  password_hash: string;
+  permissions: Permission[];
+}): User {
+  const db = getDb();
+  const result = db
+    .prepare<[string, string, string]>(
+      'INSERT INTO users (username, password_hash, permissions) VALUES (?, ?, ?)',
+    )
+    .run(data.username, data.password_hash, JSON.stringify(data.permissions));
+  const created = getUserById(result.lastInsertRowid as number);
+  if (!created) throw new Error('createUser: row not found after insert');
+  return created;
+}
+
+export function updateUser(
+  id: number,
+  patch: { username?: string; password_hash?: string; permissions?: Permission[] },
+): void {
+  const fields: string[] = [];
+  const values: (string | number)[] = [];
+
+  if (patch.username !== undefined) {
+    fields.push('username = ?');
+    values.push(patch.username);
+  }
+  if (patch.password_hash !== undefined) {
+    fields.push('password_hash = ?');
+    values.push(patch.password_hash);
+  }
+  if (patch.permissions !== undefined) {
+    fields.push('permissions = ?');
+    values.push(JSON.stringify(patch.permissions));
+  }
+
+  if (fields.length === 0) return;
+
+  values.push(id);
+  const db = getDb();
+  db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function deleteUser(id: number): void {
+  const db = getDb();
+  db.prepare<[number]>('DELETE FROM users WHERE id = ?').run(id);
+}
