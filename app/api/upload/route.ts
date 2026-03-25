@@ -9,6 +9,7 @@ import { computeMD5AndStream } from '@/lib/md5';
 import { streamToGCS, deleteFromGCS, renameInGCS } from '@/lib/gcs';
 import { insertFile, getFileByMd5, getDb } from '@/lib/db';
 import { generateToken, hashToken } from '@/lib/token';
+import { parseExpiresAt } from '@/lib/expiry';
 import { auth } from '@/auth';
 
 /** Map common MIME types to extensions when filename has none. */
@@ -202,13 +203,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 /** Parse expires_at from ISO string or Unix timestamp string → number | null */
-function parseExpiresAt(value: string): number | null {
-  if (!value) return null;
-  // Try as Unix timestamp (numeric string)
-  const asNum = Number(value);
-  if (!isNaN(asNum) && asNum > 0) return asNum;
-  // Try as ISO 8601
-  const asDate = new Date(value);
-  if (!isNaN(asDate.getTime())) return Math.floor(asDate.getTime() / 1000);
-  return null;
-}
+// Moved to lib/expiry.ts — re-exported here for backward compatibility
+// (unused local copy removed; import above covers all usages)
