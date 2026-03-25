@@ -100,3 +100,26 @@ export function getDownloadLogs(fileId: number): DownloadLog[] {
     )
     .all(fileId);
 }
+
+export function listFiles(): (FileRecord & { download_count: number })[] {
+  const db = getDb();
+  return db
+    .prepare<[], FileRecord & { download_count: number }>(
+      `SELECT f.*, COUNT(dl.id) as download_count
+       FROM files f
+       LEFT JOIN download_logs dl ON dl.file_id = f.id
+       GROUP BY f.id
+       ORDER BY f.uploaded_at DESC`,
+    )
+    .all();
+}
+
+export function updateFileExpiry(id: number, expiresAt: number | null): void {
+  const db = getDb();
+  db.prepare<[number | null, number]>('UPDATE files SET expires_at = ? WHERE id = ?').run(expiresAt, id);
+}
+
+export function deleteFile(id: number): void {
+  const db = getDb();
+  db.prepare<[number]>('DELETE FROM files WHERE id = ?').run(id);
+}
