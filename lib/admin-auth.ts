@@ -1,8 +1,10 @@
+import { auth } from '@/auth';
+
 /**
- * Admin authentication stub.
- * S04 replaces this with a real session check (cookie/JWT validation).
- * Until then, all admin routes are open in dev — do NOT deploy without S04.
+ * Returns true if the current request has an active session with admin permission.
+ * Replaces the S04 stub — now calls Auth.js auth() to validate the JWT session cookie.
  */
-export function getIsAdmin(_req: Request): boolean {
-  return true; // TODO S04: replace with real session check
+export async function getIsAdmin(): Promise<boolean> {
+  const session = await auth();
+  return session?.user?.permissions?.includes('admin') ?? false;
 }

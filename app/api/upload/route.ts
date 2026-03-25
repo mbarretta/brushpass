@@ -9,8 +9,7 @@ import { computeMD5AndStream } from '@/lib/md5';
 import { streamToGCS, deleteFromGCS, renameInGCS } from '@/lib/gcs';
 import { insertFile, getFileByMd5, getDb } from '@/lib/db';
 import { generateToken, hashToken } from '@/lib/token';
-
-// TODO S04: verify session has 'upload' or 'admin' permission before processing
+import { auth } from '@/auth';
 
 /** Map common MIME types to extensions when filename has none. */
 function mimeToExt(mime: string): string {
@@ -30,6 +29,15 @@ function mimeToExt(mime: string): string {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Verify session has upload or admin permission
+  const session = await auth();
+  const permissions: string[] = session?.user?.permissions ?? [];
+  if (!permissions.includes('upload') && !permissions.includes('admin')) {
+    console.log('[upload] phase=auth result=forbidden user=%s', session?.user?.username ?? 'unauthenticated');
+    return NextResponse.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
+  }
+  const uploadedBy = session?.user?.username ?? session?.user?.email ?? null;
+
   let phase: 'busboy-parse' | 'gcs-upload' | 'db-insert' = 'busboy-parse';
   let tempGCSKey: string | null = null;
 
@@ -168,7 +176,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       gcs_key: finalGCSKey,
       token_hash: tokenHash,
       expires_at: expiresAtTs,
-      uploaded_by: null,
+      uploaded_by: uploadedBy,
     });
 
     console.log('[upload] file=%d md5=%s size=%d', record.id, record.md5, record.size);

@@ -21,7 +21,7 @@ export default async function AdminFileDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!getIsAdmin({} as Request)) {
+  if (!(await getIsAdmin())) {
     return (
       <div className="min-h-screen flex items-center justify-center text-zinc-500 text-sm">
         403 Forbidden

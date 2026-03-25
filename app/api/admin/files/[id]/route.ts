@@ -10,7 +10,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<Response> {
   let phase = 'auth';
   try {
-    if (!getIsAdmin(request)) {
+    if (!(await getIsAdmin())) {
       return Response.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
     }
 
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
 export async function PATCH(request: NextRequest, { params }: Params): Promise<Response> {
   let phase = 'auth';
   try {
-    if (!getIsAdmin(request)) {
+    if (!(await getIsAdmin())) {
       return Response.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
     }
 
@@ -86,7 +86,7 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
 export async function DELETE(request: NextRequest, { params }: Params): Promise<Response> {
   let phase = 'auth';
   try {
-    if (!getIsAdmin(request)) {
+    if (!(await getIsAdmin())) {
       return Response.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
     }
 

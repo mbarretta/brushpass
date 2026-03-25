@@ -16,10 +16,9 @@ function formatExpiry(expiresAt: number | null): string {
   return new Date(expiresAt * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
-export default function AdminFilesPage() {
-  // getIsAdmin stub always returns true; S04 replaces with real session check
-  if (!getIsAdmin({} as Request)) {
-    redirect('/');
+export default async function AdminFilesPage() {
+  if (!(await getIsAdmin())) {
+    redirect('/login');
   }
 
   const files = listFiles();

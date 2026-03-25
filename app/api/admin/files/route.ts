@@ -7,7 +7,7 @@ import { getIsAdmin } from '@/lib/admin-auth';
 export async function GET(request: NextRequest): Promise<Response> {
   let phase = 'auth';
   try {
-    if (!getIsAdmin(request)) {
+    if (!(await getIsAdmin())) {
       return Response.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
     }
 
