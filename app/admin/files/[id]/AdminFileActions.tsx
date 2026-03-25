@@ -26,6 +26,10 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [regenToken, setRegenToken] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [copiedRegen, setCopiedRegen] = useState(false);
 
   async function handleSaveExpiry() {
     setSaving(true);
@@ -48,6 +52,32 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    setRegenError(null);
+    setRegenToken(null);
+    try {
+      const res = await fetch(`/api/admin/files/${fileId}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setRegenError(data.error ?? 'Failed to regenerate token');
+        return;
+      }
+      setRegenToken(data.token);
+    } catch (err) {
+      setRegenError(String(err));
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  function copyRegenToken() {
+    if (!regenToken) return;
+    navigator.clipboard.writeText(regenToken);
+    setCopiedRegen(true);
+    setTimeout(() => setCopiedRegen(false), 2000);
   }
 
   async function handleDelete() {
@@ -98,6 +128,40 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
         </div>
         {saveError && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{saveError}</p>
+        )}
+      </div>
+
+      <div className="border-t border-zinc-100 dark:border-zinc-800 pt-6">
+        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
+          Regenerate Token
+        </h2>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
+          Issues a new download token and invalidates the old one. The new token is shown once.
+        </p>
+        <button
+          onClick={handleRegenerate}
+          disabled={regenerating}
+          className="rounded-lg bg-amber-500 text-white text-sm font-medium px-4 py-2 hover:bg-amber-600 disabled:opacity-50 transition-colors"
+        >
+          {regenerating ? 'Regenerating…' : 'Regenerate Token'}
+        </button>
+        {regenError && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{regenError}</p>
+        )}
+        {regenToken && (
+          <div className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">New download token</p>
+            <p className="font-mono text-sm text-zinc-800 dark:text-zinc-200 break-all">{regenToken}</p>
+            <div className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              ⚠ Save this token — it will not be shown again.
+            </div>
+            <button
+              onClick={copyRegenToken}
+              className="rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium px-4 py-2 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
+            >
+              {copiedRegen ? 'Copied!' : 'Copy token'}
+            </button>
+          </div>
         )}
       </div>
 
