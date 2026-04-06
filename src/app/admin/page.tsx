@@ -24,7 +24,7 @@ export default async function AdminFilesPage() {
   const files = listFiles();
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-20">
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
