@@ -17,73 +17,81 @@ afterEach(async () => {
   delete process.env.DATABASE_PATH;
 });
 
-// Minimal helper to insert a file row with a controlled expires_at
+// Minimal helper to insert a file row with a controlled expires_at.
+// sha256 values are padded to 64 chars (the column's unique constraint requires it).
 async function seedFile(
-  md5: string,
+  sha256: string,
   expiresAt: number | null,
 ): Promise<void> {
   const { insertFile } = await import('@/lib/db');
   insertFile({
-    filename: `${md5}.txt`,
+    filename: `${sha256}.txt`,
     original_name: 'test.txt',
-    md5,
+    sha256,
     size: 4,
     content_type: 'text/plain',
-    gcs_key: `${md5}.txt`,
+    gcs_key: `${sha256}.txt`,
     token_hash: 'fakehash',
     expires_at: expiresAt,
     uploaded_by: null,
   });
 }
 
-// We need to manipulate expires_at directly to values in the past/future.
-// better-sqlite3 lets us run raw SQL for that.
-async function setExpiresAt(md5: string, value: number): Promise<void> {
+async function setExpiresAt(sha256: string, value: number): Promise<void> {
   const { getDb } = await import('@/lib/db');
   const db = getDb();
-  db.prepare('UPDATE files SET expires_at = ? WHERE md5 = ?').run(value, md5);
+  db.prepare('UPDATE files SET expires_at = ? WHERE sha256 = ?').run(value, sha256);
+}
+
+// Pad a short identifier to 64 chars for use as a sha256 value in tests
+function pad64(s: string): string {
+  return s.padEnd(64, '0');
 }
 
 describe('getExpiredFiles()', () => {
   it('excludes records with null expires_at', async () => {
     const { getExpiredFiles } = await import('@/lib/db');
-    await seedFile('aa000000000000000000000000000001', null);
+    await seedFile(pad64('aa000000000000000000000000000001'), null);
     const results = getExpiredFiles();
     expect(results).toHaveLength(0);
   });
 
   it('excludes records with a future expires_at', async () => {
     const { getExpiredFiles } = await import('@/lib/db');
-    // Insert with any value, then set to far future via raw SQL
-    await seedFile('bb000000000000000000000000000001', 9999999999);
+    await seedFile(pad64('bb000000000000000000000000000001'), 9999999999);
     const results = getExpiredFiles();
     expect(results).toHaveLength(0);
   });
 
   it('includes records with a past expires_at', async () => {
     const { getExpiredFiles } = await import('@/lib/db');
-    await seedFile('cc000000000000000000000000000001', 1); // epoch second 1 — definitely in the past
+    const sha256 = pad64('cc000000000000000000000000000001');
+    await seedFile(sha256, 1); // epoch second 1 — definitely in the past
     const results = getExpiredFiles();
     expect(results).toHaveLength(1);
-    expect(results[0].md5).toBe('cc000000000000000000000000000001');
+    expect(results[0].sha256).toBe(sha256);
   });
 
   it('returns only past-expiry records when mixed', async () => {
     const { getExpiredFiles } = await import('@/lib/db');
+    const s1 = pad64('dd000000000000000000000000000001');
+    const s2 = pad64('dd000000000000000000000000000002');
+    const s3 = pad64('dd000000000000000000000000000003');
+    const s4 = pad64('dd000000000000000000000000000004');
     // past: expires_at = 1
-    await seedFile('dd000000000000000000000000000001', 1);
+    await seedFile(s1, 1);
     // null: never expires
-    await seedFile('dd000000000000000000000000000002', null);
+    await seedFile(s2, null);
     // future
-    await seedFile('dd000000000000000000000000000003', 9999999999);
+    await seedFile(s3, 9999999999);
     // another past
-    await seedFile('dd000000000000000000000000000004', 2);
+    await seedFile(s4, 2);
 
     const results = getExpiredFiles();
     expect(results).toHaveLength(2);
-    const md5s = results.map((r) => r.md5);
-    expect(md5s).toContain('dd000000000000000000000000000001');
-    expect(md5s).toContain('dd000000000000000000000000000004');
+    const sha256s = results.map((r) => r.sha256);
+    expect(sha256s).toContain(s1);
+    expect(sha256s).toContain(s4);
     // Ordered by expires_at ASC
     expect(results[0].expires_at).toBeLessThan(results[1].expires_at!);
   });

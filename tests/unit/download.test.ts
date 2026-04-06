@@ -24,10 +24,10 @@ async function insertTestFile(overrides: { expires_at?: number | null } = {}): P
   const record = insertFile({
     filename: 'aabbccdd.txt',
     original_name: 'test.txt',
-    md5: 'aabbccdd00000000aabbccdd00000000',
+    sha256: 'aabbccdd00000000aabbccdd00000000aabbccdd00000000aabbccdd00000000',
     size: 4,
     content_type: 'text/plain',
-    gcs_key: 'aabbccdd00000000aabbccdd00000000.txt',
+    gcs_key: 'aabbccdd00000000aabbccdd00000000aabbccdd00000000aabbccdd00000000.txt',
     token_hash: '$2b$10$fakehashvalue',
     expires_at: overrides.expires_at !== undefined ? overrides.expires_at : null,
     uploaded_by: null,

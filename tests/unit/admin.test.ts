@@ -19,18 +19,18 @@ afterEach(async () => {
 
 /** Insert a minimal file record and return its id */
 async function insertTestFile(overrides: {
-  md5?: string;
+  sha256?: string;
   expires_at?: number | null;
 } = {}): Promise<number> {
   const { insertFile } = await import('@/lib/db');
-  const md5 = overrides.md5 ?? 'aabbccdd00000000aabbccdd00000000';
+  const sha256 = overrides.sha256 ?? 'aabbccdd00000000aabbccdd00000000aabbccdd00000000aabbccdd00000000';
   const record = insertFile({
-    filename: `${md5}.txt`,
+    filename: `${sha256}.txt`,
     original_name: 'test.txt',
-    md5,
+    sha256,
     size: 4,
     content_type: 'text/plain',
-    gcs_key: `${md5}.txt`,
+    gcs_key: `${sha256}.txt`,
     token_hash: '$2b$10$fakehashvalue',
     expires_at: overrides.expires_at !== undefined ? overrides.expires_at : null,
     uploaded_by: null,
@@ -70,12 +70,12 @@ describe('listFiles', () => {
     // Insert two files with different uploaded_at values by direct SQL
     const db = getDb();
     db.prepare(
-      `INSERT INTO files (filename, original_name, md5, size, content_type, gcs_key, token_hash, uploaded_at)
-       VALUES ('old.txt', 'old.txt', 'oldmd5000000000000000000000000000', 1, 'text/plain', 'old.txt', 'hash1', 1000000)`,
+      `INSERT INTO files (filename, original_name, sha256, size, content_type, gcs_key, token_hash, uploaded_at)
+       VALUES ('old.txt', 'old.txt', 'oldsha256000000000000000000000000000000000000000000000000000000', 1, 'text/plain', 'old.txt', 'hash1', 1000000)`,
     ).run();
     db.prepare(
-      `INSERT INTO files (filename, original_name, md5, size, content_type, gcs_key, token_hash, uploaded_at)
-       VALUES ('new.txt', 'new.txt', 'newmd5000000000000000000000000000', 1, 'text/plain', 'new.txt', 'hash2', 2000000)`,
+      `INSERT INTO files (filename, original_name, sha256, size, content_type, gcs_key, token_hash, uploaded_at)
+       VALUES ('new.txt', 'new.txt', 'newsha256000000000000000000000000000000000000000000000000000000', 1, 'text/plain', 'new.txt', 'hash2', 2000000)`,
     ).run();
     const files = listFiles();
     expect(files).toHaveLength(2);

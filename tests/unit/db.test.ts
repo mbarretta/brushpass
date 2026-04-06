@@ -54,34 +54,34 @@ describe('getDb()', () => {
   });
 });
 
-describe('insertFile / getFileByMd5 / getFileById', () => {
-  it('insertFile round-trips through getFileByMd5', async () => {
-    const { insertFile, getFileByMd5 } = await import('@/lib/db');
+describe('insertFile / getFileBySha256 / getFileById', () => {
+  it('insertFile round-trips through getFileBySha256', async () => {
+    const { insertFile, getFileBySha256 } = await import('@/lib/db');
     const data = {
       filename: 'abc123.txt',
       original_name: 'hello.txt',
-      md5: 'abc123def456abc123def456abc12345',
+      sha256: 'abc123def456abc123def456abc12345abc123def456abc123def456abc12345',
       size: 11,
       content_type: 'text/plain',
-      gcs_key: 'abc123def456abc123def456abc12345.txt',
+      gcs_key: 'abc123def456abc123def456abc12345abc123def456abc123def456abc12345.txt',
       token_hash: '$2b$10$fakehashvalue',
       expires_at: null,
       uploaded_by: null,
     };
     const inserted = insertFile(data);
     expect(inserted.id).toBeGreaterThan(0);
-    expect(inserted.md5).toBe(data.md5);
+    expect(inserted.sha256).toBe(data.sha256);
     expect(inserted.filename).toBe(data.filename);
 
-    const found = getFileByMd5(data.md5);
+    const found = getFileBySha256(data.sha256);
     expect(found).toBeDefined();
     expect(found!.id).toBe(inserted.id);
     expect(found!.original_name).toBe('hello.txt');
   });
 
-  it('getFileByMd5 returns undefined for unknown md5', async () => {
-    const { getFileByMd5 } = await import('@/lib/db');
-    expect(getFileByMd5('nonexistent')).toBeUndefined();
+  it('getFileBySha256 returns undefined for unknown sha256', async () => {
+    const { getFileBySha256 } = await import('@/lib/db');
+    expect(getFileBySha256('nonexistent')).toBeUndefined();
   });
 
   it('getFileById returns the correct record', async () => {
@@ -89,10 +89,10 @@ describe('insertFile / getFileByMd5 / getFileById', () => {
     const data = {
       filename: 'xyz789.txt',
       original_name: 'world.txt',
-      md5: 'xyz789000000xyz789000000xyz78900',
+      sha256: 'xyz789000000xyz789000000xyz78900xyz789000000xyz789000000xyz78900',
       size: 5,
       content_type: 'text/plain',
-      gcs_key: 'xyz789000000xyz789000000xyz78900.txt',
+      gcs_key: 'xyz789000000xyz789000000xyz78900xyz789000000xyz789000000xyz78900.txt',
       token_hash: '$2b$10$anotherfakehash',
       expires_at: 9999999999,
       uploaded_by: 'tester',
