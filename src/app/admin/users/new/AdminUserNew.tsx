@@ -32,7 +32,7 @@ export default function AdminUserNew() {
         body: JSON.stringify({ username, password, permissions }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
+      if (!res.ok) {
         setError(data.error ?? 'Failed to create user');
       } else {
         router.push('/admin/users');
