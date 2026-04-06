@@ -2,9 +2,9 @@ export type Permission = 'upload' | 'admin';
 
 export interface FileRecord {
   id: number;
-  filename: string;       // GCS key: <md5>.<ext>
+  filename: string;       // GCS key: <sha256>.<ext>
   original_name: string;
-  md5: string;
+  sha256: string;
   size: number;
   content_type: string;
   gcs_key: string;
