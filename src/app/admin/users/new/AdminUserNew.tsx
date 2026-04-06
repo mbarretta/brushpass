@@ -7,18 +7,51 @@ import type { Permission } from '@/types';
 
 const ALL_PERMISSIONS: Permission[] = ['upload', 'admin'];
 
+const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*-_+=?';
+const PASSWORD_LENGTH = 20;
+
+function generateSecurePassword(): string {
+  const bytes = new Uint8Array(PASSWORD_LENGTH);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => CHARSET[b % CHARSET.length])
+    .join('');
+}
+
 export default function AdminUserNew() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  // null = user typed manually; non-null = generated (tracks current generated value for copy)
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   function togglePermission(p: Permission) {
     setPermissions((prev) =>
       prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
     );
+  }
+
+  function handleGeneratePassword() {
+    const pwd = generateSecurePassword();
+    setPassword(pwd);
+    setGeneratedPassword(pwd);
+    setCopied(false);
+  }
+
+  async function handleCopyCredentials() {
+    if (!generatedPassword || !username) return;
+    const text = `Username: ${username}\nPassword: ${generatedPassword}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable — silently ignore
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -86,12 +119,38 @@ export default function AdminUserNew() {
             </label>
             <input
               id="password"
-              type="password"
+              // Show generated password in plaintext so admin can review/copy it;
+              // keep manual typing hidden as a normal password field.
+              type={generatedPassword !== null ? 'text' : 'password'}
               required
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-200"
+              onChange={(e) => {
+                setPassword(e.target.value);
+                // Manual edit clears the generated state — copy button hides.
+                setGeneratedPassword(null);
+                setCopied(false);
+              }}
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-200"
             />
+            <div className="mt-2 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-400"
+              >
+                Generate password
+              </button>
+              {generatedPassword !== null && (
+                <button
+                  type="button"
+                  onClick={handleCopyCredentials}
+                  disabled={!username}
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-600 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                >
+                  {copied ? '✓ Copied!' : 'Copy credentials'}
+                </button>
+              )}
+            </div>
           </div>
 
           <div>
