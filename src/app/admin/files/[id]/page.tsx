@@ -78,7 +78,7 @@ export default async function AdminFileDetailPage({
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-20">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-40">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3 mb-2">
           <Link href="/admin" className="text-sm text-zinc-500 hover:underline">
@@ -102,9 +102,9 @@ export default async function AdminFileDetailPage({
               <p className="text-zinc-900 dark:text-zinc-100 font-mono break-all">{value}</p>
             </div>
           ))}
-          <div className="flex justify-between items-baseline px-5 py-3 text-sm">
-            <span className="text-zinc-500 dark:text-zinc-400">Downloads</span>
-            <span className="text-zinc-900 dark:text-zinc-100 font-semibold">{download_logs.length}</span>
+          <div className="px-5 py-3 text-sm">
+            <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-0.5">Downloads</p>
+            <p className="text-zinc-900 dark:text-zinc-100 font-semibold">{download_logs.length}</p>
           </div>
         </div>
 

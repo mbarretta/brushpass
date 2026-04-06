@@ -44,7 +44,7 @@ export default async function AdminUserDetailPage({
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-20">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-40">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3 mb-2">
           <Link href="/admin/users" className="text-sm text-zinc-500 hover:underline">

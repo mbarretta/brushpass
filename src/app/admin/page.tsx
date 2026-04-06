@@ -13,7 +13,7 @@ export default async function AdminFilesPage() {
   const files = listFiles();
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-20">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-40">
       <div className="max-w-5xl mx-auto">
         <AdminFilesClient files={files} />
       </div>
