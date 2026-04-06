@@ -68,7 +68,7 @@ export default async function AdminFileDetailPage({
   const fields: [string, string][] = [
     ['ID', String(safeFile.id)],
     ['Original name', safeFile.original_name],
-    ['MD5', safeFile.md5],
+    ['SHA-256', safeFile.sha256],
     ['Size', formatBytes(safeFile.size)],
     ['Content type', safeFile.content_type],
     ['GCS key', safeFile.gcs_key],

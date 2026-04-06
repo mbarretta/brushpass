@@ -4,19 +4,19 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function DownloadForm() {
-  const [md5, setMd5] = useState('');
+  const [hash, setHash] = useState('');
   const [token, setToken] = useState('');
   const router = useRouter();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const hash = md5.trim();
+    const h = hash.trim();
     const tok = token.trim();
-    if (!hash) return;
+    if (!h) return;
     // Navigate to the per-file download page, which handles the token
     const url = tok
-      ? `/${hash}?token=${encodeURIComponent(tok)}`
-      : `/${hash}`;
+      ? `/${h}?token=${encodeURIComponent(tok)}`
+      : `/${h}`;
     router.push(url);
   }
 
@@ -30,16 +30,16 @@ export default function DownloadForm() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="md5" className="block text-sm font-medium text-zinc-700 mb-1">
-              File hash (MD5) <span className="text-red-500">*</span>
+            <label htmlFor="hash" className="block text-sm font-medium text-zinc-700 mb-1">
+              File hash (SHA-256) <span className="text-red-500">*</span>
             </label>
             <input
-              id="md5"
+              id="hash"
               type="text"
               required
-              value={md5}
-              onChange={(e) => setMd5(e.target.value)}
-              placeholder="81967f4d5b2cf61bf0c8b65aed006387"
+              value={hash}
+              onChange={(e) => setHash(e.target.value)}
+              placeholder="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
               autoFocus
               className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-mono text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
@@ -62,7 +62,7 @@ export default function DownloadForm() {
 
           <button
             type="submit"
-            disabled={!md5.trim() || !token.trim()}
+            disabled={!hash.trim() || !token.trim()}
             className="w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
           >
             Download

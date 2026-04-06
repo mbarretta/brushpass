@@ -11,9 +11,9 @@ function isPublicRoute(pathname: string): boolean {
   if (pathname === '/logout') return true;
   // Home page
   if (pathname === '/') return true;
-  // Download route: /[md5] — single path segment, no further nesting
+  // Download route: /[sha256] — single path segment, no further nesting
   // Matches paths like /abc123def456... but NOT /admin or /upload
-  if (/^\/[a-f0-9]{32}(\?.*)?$/i.test(pathname)) return true;
+  if (/^\/[a-f0-9]{64}(\?.*)?$/i.test(pathname)) return true;
   // Generic download form page
   if (pathname === '/download') return true;
   // Download API

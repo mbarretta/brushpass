@@ -5,9 +5,9 @@ import busboy from 'busboy';
 import { Readable } from 'stream';
 import path from 'path';
 import crypto from 'crypto';
-import { computeMD5AndStream } from '@/lib/md5';
+import { computeSHA256AndStream } from '@/lib/sha256';
 import { streamToGCS, deleteFromGCS, renameInGCS } from '@/lib/gcs';
-import { insertFile, getFileByMd5, updateFileTokenHash, updateFileExpiry } from '@/lib/db';
+import { insertFile, getFileBySha256, updateFileTokenHash, updateFileExpiry } from '@/lib/db';
 import { generateToken, hashToken } from '@/lib/token';
 import { parseExpiresAt, parseExpiresIn } from '@/lib/expiry';
 import { auth } from '@/auth';
@@ -100,24 +100,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const ext = rawExt.toLowerCase();
 
     // Generate a temp GCS key using a UUID so we can start streaming immediately
-    // before the MD5 is known
+    // before the SHA-256 is known
     tempGCSKey = `tmp/${crypto.randomUUID()}`;
 
-    // Set up MD5 tee-stream — passThrough is both consumed by MD5 hash AND piped to GCS
-    const { md5Promise, sizePromise, passThrough } = computeMD5AndStream(fileStream);
+    // Set up SHA-256 tee-stream — passThrough is both consumed by SHA-256 hash AND piped to GCS
+    const { sha256Promise, sizePromise, passThrough } = computeSHA256AndStream(fileStream);
 
     // Start GCS upload from the passThrough stream immediately
     phase = 'gcs-upload';
     const gcsUploadPromise = streamToGCS(passThrough, tempGCSKey, mimeType);
 
-    // Await GCS upload completion, MD5, and byte count in parallel
-    const [md5, size] = await Promise.all([
-      md5Promise,
+    // Await GCS upload completion, SHA-256, and byte count in parallel
+    const [sha256, size] = await Promise.all([
+      sha256Promise,
       sizePromise,
       gcsUploadPromise,
     ]);
 
-    const finalGCSKey = `${md5}.${ext}`;
+    const finalGCSKey = `${sha256}.${ext}`;
 
     const resolveExpiry = (fallback: number | null) =>
       fieldValues['expires_in']
@@ -126,8 +126,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? parseExpiresAt(fieldValues['expires_at'])
           : fallback;
 
-    // Check for MD5 collision — file already uploaded with same content
-    const existing = getFileByMd5(md5);
+    // Check for SHA-256 collision — file already uploaded with same content
+    const existing = getFileBySha256(sha256);
     if (existing) {
       // Clean up the temp object — the canonical one already exists
       try {
@@ -147,10 +147,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       updateFileTokenHash(existing.id, tokenHash);
       updateFileExpiry(existing.id, expiresAtTs);
 
-      console.log('[upload] collision file=%d md5=%s size=%d', existing.id, existing.md5, existing.size);
+      console.log('[upload] collision file=%d sha256=%s size=%d', existing.id, existing.sha256, existing.size);
 
       return NextResponse.json({
-        url: `/${existing.md5}`,
+        url: `/${existing.sha256}`,
         token,
         expires_at: expiresAtTs,
       });
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const record = insertFile({
       filename: finalGCSKey,
       original_name: filename,
-      md5,
+      sha256,
       size,
       content_type: mimeType,
       gcs_key: finalGCSKey,
@@ -181,10 +181,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       uploaded_by: uploadedBy,
     });
 
-    console.log('[upload] file=%d md5=%s size=%d', record.id, record.md5, record.size);
+    console.log('[upload] file=%d sha256=%s size=%d', record.id, record.sha256, record.size);
 
     return NextResponse.json({
-      url: `/${record.md5}`,
+      url: `/${record.sha256}`,
       token,
       expires_at: record.expires_at,
     });
@@ -202,4 +202,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: message, phase }, { status: 500 });
   }
 }
-
