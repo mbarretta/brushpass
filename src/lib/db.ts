@@ -52,6 +52,15 @@ const MIGRATIONS: Record<number, (db: Database.Database) => void> = {
     // Backfill text columns from gcs_key for any pre-existing rows.
     db.exec("UPDATE files SET filename = gcs_key WHERE filename = ''");
     db.exec("UPDATE files SET original_name = gcs_key WHERE original_name = ''");
+
+    // users table: add created_at if the prototype schema omitted it.
+    // Default to unixepoch() so existing rows get a sensible timestamp.
+    const userCols = new Set(
+      (db.prepare("SELECT name FROM pragma_table_info('users')").all() as { name: string }[]).map(r => r.name)
+    );
+    if (!userCols.has('created_at')) {
+      db.exec('ALTER TABLE users ADD COLUMN created_at INTEGER NOT NULL DEFAULT (unixepoch())');
+    }
   },
 };
 

@@ -170,14 +170,14 @@ export default function UploadForm() {
   const downloadUrl = result ? `${window.location.origin}${result.url}` : '';
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-zinc-200 p-8">
-        <h1 className="text-2xl font-semibold text-zinc-900 mb-6 text-center">Upload a file</h1>
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center px-4">
+      <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-8">
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mb-6 text-center">Upload a file</h1>
 
         {error && (
           <div
             role="alert"
-            className="mb-5 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700"
+            className="mb-5 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-400"
           >
             {error}
           </div>
@@ -185,12 +185,12 @@ export default function UploadForm() {
 
         {result ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 space-y-3">
               <div>
-                <p className="text-xs font-medium text-zinc-500 mb-1">Download URL</p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">Download URL</p>
                 <a
                   href={downloadUrl}
-                  className="block text-sm text-blue-600 hover:underline break-all"
+                  className="block text-sm text-blue-600 dark:text-blue-400 hover:underline break-all"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -199,28 +199,28 @@ export default function UploadForm() {
               </div>
 
               <div>
-                <p className="text-xs font-medium text-zinc-500 mb-1">Token</p>
-                <p className="font-mono text-sm text-zinc-800 break-all">{result.token}</p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">Token</p>
+                <p className="font-mono text-sm text-zinc-800 dark:text-zinc-200 break-all">{result.token}</p>
               </div>
 
               {result.expires_at !== null && (
                 <div>
-                  <p className="text-xs font-medium text-zinc-500 mb-1">Expires</p>
-                  <p className="text-sm text-zinc-700">
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">Expires</p>
+                  <p className="text-sm text-zinc-700 dark:text-zinc-300">
                     {new Date(result.expires_at * 1000).toLocaleString()}
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
               ⚠ Save this token — it will not be shown again.
             </div>
 
             <button
               type="button"
               onClick={copyToken}
-              className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
+              className="w-full rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
             >
               {copied ? 'Copied!' : 'Copy token'}
             </button>
@@ -228,7 +228,7 @@ export default function UploadForm() {
             <button
               type="button"
               onClick={() => setResult(null)}
-              className="w-full rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
             >
               Upload another file
             </button>
@@ -238,7 +238,7 @@ export default function UploadForm() {
             <div>
               <label
                 htmlFor="file"
-                className="block text-sm font-medium text-zinc-700 mb-1"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
               >
                 File <span className="text-red-500">*</span>
               </label>
@@ -252,7 +252,7 @@ export default function UploadForm() {
                   setFile(f);
                   setFileSize(f?.size ?? null);
                 }}
-                className="w-full text-sm text-zinc-700 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-200"
+                className="w-full text-sm text-zinc-700 dark:text-zinc-300 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-zinc-700 dark:file:text-zinc-300 hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700"
               />
               {fileSize !== null && (
                 <p className="text-xs text-zinc-500 mt-1">{formatBytes(fileSize)}</p>
@@ -264,7 +264,7 @@ export default function UploadForm() {
                 <p className="text-xs text-zinc-500 mb-1">
                   {phase === 'hashing' ? `Computing checksum\u2026 ${progress}%` : `Uploading\u2026 ${progress}%`}
                 </p>
-                <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2 overflow-hidden">
                   <div
                     className={`h-2 rounded-full transition-all duration-150 ${
                       phase === 'hashing' ? 'bg-amber-500' : 'bg-blue-600'
@@ -276,8 +276,8 @@ export default function UploadForm() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">
-                Expires in <span className="text-zinc-400 text-xs">(optional)</span>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Expires in <span className="text-zinc-400 dark:text-zinc-500 text-xs">(optional)</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -287,12 +287,12 @@ export default function UploadForm() {
                   value={expireCount}
                   onChange={(e) => setExpireCount(e.target.value)}
                   placeholder="No expiry"
-                  className="flex-1 rounded border border-zinc-300 px-3 py-2 text-sm text-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-zinc-400 dark:placeholder-zinc-500"
                 />
                 <select
                   value={expireUnit}
                   onChange={(e) => setExpireUnit(e.target.value as 'h' | 'd')}
-                  className="rounded border border-zinc-300 px-3 py-2 text-sm text-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="h">hours</option>
                   <option value="d">days</option>

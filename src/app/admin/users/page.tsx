@@ -83,7 +83,7 @@ export default async function AdminUsersPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">
-                      {new Date(user.created_at * 1000).toISOString().replace('T', ' ').slice(0, 10)}
+                      {user.created_at ? new Date(user.created_at * 1000).toISOString().replace('T', ' ').slice(0, 10) : '—'}
                     </td>
                   </tr>
                 ))}

@@ -6,7 +6,8 @@ import AdminUserActions from './AdminUserActions';
 
 export const metadata = { title: 'Admin — User Detail' };
 
-function formatUnix(unix: number): string {
+function formatUnix(unix: number | undefined): string {
+  if (unix === undefined || unix === 0) return '—';
   return new Date(unix * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
@@ -43,7 +44,7 @@ export default async function AdminUserDetailPage({
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-10 pr-20">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3 mb-2">
           <Link href="/admin/users" className="text-sm text-zinc-500 hover:underline">
@@ -62,14 +63,9 @@ export default async function AdminUserDetailPage({
         {/* Metadata card */}
         <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-800">
           {fields.map(([label, value]) => (
-            <div
-              key={label}
-              className="flex justify-between items-baseline px-5 py-3 text-sm gap-4"
-            >
-              <span className="text-zinc-500 dark:text-zinc-400 shrink-0">{label}</span>
-              <span className="text-zinc-900 dark:text-zinc-100 font-mono text-right break-all">
-                {value}
-              </span>
+            <div key={label} className="px-5 py-3 text-sm">
+              <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-0.5">{label}</p>
+              <p className="text-zinc-900 dark:text-zinc-100 font-mono break-all">{value}</p>
             </div>
           ))}
         </div>

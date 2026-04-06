@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { redirect, notFound } from 'next/navigation';
 
 export const metadata = { title: 'Download File' };
 
@@ -10,6 +10,12 @@ export default async function DownloadPage({
   searchParams: Promise<{ token?: string; error?: string }>;
 }) {
   const { sha256 } = await params;
+
+  // Reject anything that isn't a 64-char hex string — matches the API route guard.
+  if (!/^[a-f0-9]{64}$/i.test(sha256)) {
+    notFound();
+  }
+
   const { token, error } = await searchParams;
 
   // If token is present, redirect immediately to the download API
