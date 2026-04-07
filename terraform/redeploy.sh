@@ -18,9 +18,11 @@ echo "==> Region  : $REGION"
 echo "==> Image   : $IMAGE"
 echo ""
 
+COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+echo "==> Commit    : $COMMIT_SHA"
 echo "==> Building and pushing image (linux/amd64)..."
 cd ..
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push .
+docker buildx build --platform linux/amd64 -t "$IMAGE" --build-arg COMMIT_SHA="$COMMIT_SHA" --push .
 cd terraform
 
 echo "==> Updating Cloud Run service..."
