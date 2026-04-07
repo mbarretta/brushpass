@@ -18,6 +18,10 @@ function isPublicRoute(pathname: string): boolean {
   if (pathname === '/download') return true;
   // Download API
   if (pathname.startsWith('/api/download/')) return true;
+  // Public group pages: /g/[slug]
+  if (pathname.startsWith('/g/')) return true;
+  // Group file download API
+  if (pathname.startsWith('/api/groups/')) return true;
   return false;
 }
 
