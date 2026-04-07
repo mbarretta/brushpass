@@ -7,6 +7,8 @@ COPY --chown=65532:65532 package*.json ./
 RUN npm ci
 COPY --chown=65532:65532 . .
 ENV GCS_BUCKET=build-placeholder
+ARG COMMIT_SHA=dev
+ENV NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
 FROM cgr.dev/barretta/node:25-slim AS runner
