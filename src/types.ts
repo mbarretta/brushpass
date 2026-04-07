@@ -23,9 +23,20 @@ export interface DownloadLog {
 export interface User {
   id: number;
   username: string;
-  password_hash: string;
+  password_hash: string | null;
+  email: string | null;
+  auth_provider: 'credentials' | 'oidc';
   permissions: Permission[];  // stored as JSON text in DB
   created_at: number;
+}
+
+export interface PermissionRequest {
+  id: number;
+  user_id: number;
+  username: string;
+  email: string | null;
+  requested_permissions: Permission[];
+  requested_at: number;
 }
 
 export interface FileGroup {

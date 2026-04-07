@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { type NextRequest } from 'next/server';
 import { getGroupBySlug, listGroupFiles, updateGroup, deleteGroup, isValidSlug } from '@/lib/db';
 import { getIsAdmin } from '@/lib/admin-auth';
+import { generateToken, hashToken } from '@/lib/token';
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -86,6 +87,37 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
     if (String(err).includes('UNIQUE constraint failed')) {
       return Response.json({ error: 'Slug already exists', phase }, { status: 409 });
     }
+    return Response.json({ error: 'Internal server error', phase }, { status: 500 });
+  }
+}
+
+export async function POST(_request: NextRequest, { params }: Params): Promise<Response> {
+  let phase = 'auth';
+  try {
+    if (!(await getIsAdmin())) {
+      return Response.json({ error: 'Forbidden', phase: 'auth' }, { status: 403 });
+    }
+
+    phase = 'params';
+    const { slug } = await params;
+
+    phase = 'db-lookup';
+    const group = getGroupBySlug(slug);
+    if (!group) {
+      return Response.json({ error: 'Group not found', phase: 'db-lookup' }, { status: 404 });
+    }
+
+    phase = 'token-gen';
+    const token = generateToken();
+    const hash = await hashToken(token);
+
+    phase = 'db-update';
+    updateGroup(group.id, { token_hash: hash });
+
+    console.log('[admin] action=regenerate-group-token slug=%s', slug);
+    return Response.json({ token });
+  } catch (err) {
+    console.error('[admin] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });
   }
 }

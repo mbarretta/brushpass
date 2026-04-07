@@ -92,6 +92,8 @@ const config: NextAuthConfig = {
           return null;
         }
 
+        // OIDC users have no password_hash — credentials login must fail for them.
+        if (!user.password_hash) return null;
         const valid = await verifyToken(password, user.password_hash);
         if (!valid) {
           console.log('[auth] action=login username=%s result=invalid_password', username);

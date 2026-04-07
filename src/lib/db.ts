@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { FileRecord, DownloadLog, User, Permission, FileGroup, FileGroupWithFiles } from '@/types';
+import type { FileRecord, DownloadLog, User, Permission, FileGroup, FileGroupWithFiles, PermissionRequest } from '@/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -25,9 +25,17 @@ CREATE TABLE IF NOT EXISTS download_logs (
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
+  email         TEXT UNIQUE,
+  auth_provider TEXT NOT NULL DEFAULT 'credentials',
   permissions   TEXT NOT NULL DEFAULT '[]',
   created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE TABLE IF NOT EXISTS permission_requests (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requested_permissions TEXT NOT NULL DEFAULT '[]',
+  requested_at         INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE TABLE IF NOT EXISTS file_groups (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +61,41 @@ CREATE TABLE IF NOT EXISTS file_group_members (
 // user_version=0 means "no migrations applied yet".
 
 const MIGRATIONS: Record<number, (db: Database.Database) => void> = {
+  3: (db) => {
+    // Add email, auth_provider columns to users; make password_hash nullable.
+    // Also create permission_requests table.
+    // Guard: only run if auth_provider column does NOT yet exist.
+    const cols = new Set(
+      (db.prepare("SELECT name FROM pragma_table_info('users')").all() as { name: string }[]).map(r => r.name)
+    );
+    if (!cols.has('auth_provider')) {
+      // Table rebuild: preserve existing rows, add new columns, relax NOT NULL on password_hash.
+      db.exec(`
+        ALTER TABLE users RENAME TO users_old;
+        CREATE TABLE users (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          username      TEXT NOT NULL UNIQUE,
+          password_hash TEXT,
+          email         TEXT UNIQUE,
+          auth_provider TEXT NOT NULL DEFAULT 'credentials',
+          permissions   TEXT NOT NULL DEFAULT '[]',
+          created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        INSERT INTO users (id, username, password_hash, email, auth_provider, permissions, created_at)
+          SELECT id, username, password_hash, NULL, 'credentials', permissions, created_at
+          FROM users_old;
+        DROP TABLE users_old;
+      `);
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS permission_requests (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        requested_permissions TEXT NOT NULL DEFAULT '[]',
+        requested_at          INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+  },
   2: (db) => {
     // Add file_groups and file_group_members for existing DBs that predate the SCHEMA block above.
     db.exec(`
@@ -247,7 +290,9 @@ export function getExpiredFiles(): FileRecord[] {
 interface DbUserRow {
   id: number;
   username: string;
-  password_hash: string;
+  password_hash: string | null;
+  email: string | null;
+  auth_provider: string;
   permissions: string;
   created_at: number;
 }
@@ -255,6 +300,7 @@ interface DbUserRow {
 function parseUser(row: DbUserRow): User {
   return {
     ...row,
+    auth_provider: row.auth_provider as 'credentials' | 'oidc',
     permissions: JSON.parse(row.permissions) as Permission[],
   };
 }
@@ -329,6 +375,114 @@ export function deleteUser(id: number): void {
   db.prepare<[number]>('DELETE FROM users WHERE id = ?').run(id);
 }
 
+export function getUserByEmail(email: string): User | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<[string], DbUserRow>('SELECT * FROM users WHERE email = ?')
+    .get(email);
+  return row ? parseUser(row) : undefined;
+}
+
+/** Alias for getUserByEmail — used by jwt callback and OIDC helpers. */
+export function getOidcUserByEmail(email: string): User | undefined {
+  return getUserByEmail(email);
+}
+
+/**
+ * Upsert an OIDC user. On first sign-in inserts a new row (username = email,
+ * password_hash = NULL, auth_provider = 'oidc'). On subsequent sign-ins the
+ * INSERT OR IGNORE is a no-op and we return the existing row unchanged.
+ */
+export function upsertOidcUser(
+  email: string,
+  name: string,
+  permissions: Permission[],
+): User {
+  const db = getDb();
+  db
+    .prepare<[string, string, string]>(
+      `INSERT OR IGNORE INTO users (username, password_hash, email, auth_provider, permissions)
+       VALUES (?, NULL, ?, 'oidc', ?)`,
+    )
+    .run(name || email, email, JSON.stringify(permissions));
+  const user = getUserByEmail(email);
+  if (!user) throw new Error('upsertOidcUser: row not found after upsert');
+  return user;
+}
+
+export function createPermissionRequest(
+  userId: number,
+  requestedPermissions: Permission[],
+): void {
+  const db = getDb();
+  db
+    .prepare<[number, string]>(
+      'INSERT INTO permission_requests (user_id, requested_permissions) VALUES (?, ?)',
+    )
+    .run(userId, JSON.stringify(requestedPermissions));
+}
+
+interface DbPermissionRequestRow {
+  id: number;
+  user_id: number;
+  requested_permissions: string;
+  requested_at: number;
+  username: string;
+  email: string | null;
+}
+
+export function listPendingPermissionRequests(): PermissionRequest[] {
+  const db = getDb();
+  const rows = db
+    .prepare<[], DbPermissionRequestRow>(
+      `SELECT pr.*, u.username, u.email
+       FROM permission_requests pr
+       JOIN users u ON u.id = pr.user_id
+       ORDER BY pr.requested_at ASC`,
+    )
+    .all();
+  return rows.map((r) => ({
+    id: r.id,
+    user_id: r.user_id,
+    username: r.username,
+    email: r.email,
+    requested_permissions: JSON.parse(r.requested_permissions) as Permission[],
+    requested_at: r.requested_at,
+  }));
+}
+
+export function approvePermissionRequest(
+  requestId: number,
+  permissions: Permission[],
+): void {
+  const db = getDb();
+  db.transaction(() => {
+    const row = db
+      .prepare<[number], { user_id: number }>('SELECT user_id FROM permission_requests WHERE id = ?')
+      .get(requestId);
+    if (!row) return;
+    db
+      .prepare<[string, number]>('UPDATE users SET permissions = ? WHERE id = ?')
+      .run(JSON.stringify(permissions), row.user_id);
+    db
+      .prepare<[number]>('DELETE FROM permission_requests WHERE id = ?')
+      .run(requestId);
+  })();
+}
+
+export function denyPermissionRequest(requestId: number): void {
+  const db = getDb();
+  db.prepare<[number]>('DELETE FROM permission_requests WHERE id = ?').run(requestId);
+}
+
+export function getPendingRequestCount(): number {
+  const db = getDb();
+  const row = db
+    .prepare<[], { count: number }>('SELECT COUNT(*) as count FROM permission_requests')
+    .get();
+  return row?.count ?? 0;
+}
+
 export function getGroupsForFile(fileId: number): FileGroup[] {
   const db = getDb();
   return db
@@ -394,7 +548,7 @@ export function listGroups(): (FileGroup & { member_count: number })[] {
 
 export function updateGroup(
   id: number,
-  patch: { name?: string; slug?: string; expires_at?: number | null },
+  patch: { name?: string; slug?: string; expires_at?: number | null; token_hash?: string },
 ): void {
   const fields: string[] = [];
   const values: (string | number | null)[] = [];
@@ -402,6 +556,7 @@ export function updateGroup(
   if (patch.name !== undefined)       { fields.push('name = ?');       values.push(patch.name); }
   if (patch.slug !== undefined)       { fields.push('slug = ?');       values.push(patch.slug); }
   if ('expires_at' in patch)          { fields.push('expires_at = ?'); values.push(patch.expires_at ?? null); }
+  if (patch.token_hash !== undefined) { fields.push('token_hash = ?'); values.push(patch.token_hash); }
 
   if (fields.length === 0) return;
   values.push(id);

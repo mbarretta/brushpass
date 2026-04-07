@@ -16,6 +16,8 @@ function isPublicRoute(pathname: string): boolean {
   if (/^\/[a-f0-9]{64}(\?.*)?$/i.test(pathname)) return true;
   // Generic download form page
   if (pathname === '/download') return true;
+  // Request-access page — authenticated users with no permissions land here
+  if (pathname === '/request-access') return true;
   // Download API
   if (pathname.startsWith('/api/download/')) return true;
   // Public group pages: /g/[slug]
