@@ -35,6 +35,13 @@ oidc_issuer        = ""   # e.g. "https://accounts.google.com"
 oidc_client_id     = ""   # SENSITIVE — do not commit
 oidc_client_secret = ""   # SENSITIVE — do not commit
 
+# ── Custom domain (optional) ──────────────────────────────────────────────────
+# When set, this hostname is added to the GCS bucket CORS policy so that
+# browser XHR uploads from the custom domain are allowed.
+# Also used by the Cloud Run domain mapping in dns.tf.
+
+# custom_domain = "fileshare.cgr-pubsec.dev"
+
 # ── Optional overrides ────────────────────────────────────────────────────────
 
 # cloud_run_service_name = "fileshare"
