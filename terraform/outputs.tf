@@ -32,3 +32,13 @@ output "bootstrap_job_name" {
   description = "Name of the Cloud Run bootstrap job (created and executed automatically on first apply)."
   value       = var.cloud_run_job_name
 }
+
+output "custom_domain_url" {
+  description = "Custom domain URL for the fileshare service."
+  value       = "https://fileshare.cgr-pubsec.dev"
+}
+
+output "cloud_dns_nameservers" {
+  description = "Google Cloud DNS nameservers — set these at your domain registrar."
+  value       = google_dns_managed_zone.cgr_pubsec_dev.name_servers
+}
