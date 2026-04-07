@@ -42,6 +42,28 @@ export async function renameInGCS(oldKey: string, newKey: string): Promise<void>
 }
 
 /**
+ * Generate a signed GET URL for direct browser-to-GCS download.
+ * Redirecting to this URL bypasses the Cloud Run 32MB response size limit.
+ * Default TTL is 15 minutes (900 s); adjust via expiresInSeconds.
+ */
+export async function generateSignedDownloadUrl(
+  gcsKey: string,
+  originalName: string,
+  contentType: string,
+  expiresInSeconds = 900,
+): Promise<string> {
+  const enc = encodeURIComponent(originalName);
+  const [url] = await bucket.file(gcsKey).getSignedUrl({
+    action: 'read' as const,
+    version: 'v4',
+    expires: Date.now() + expiresInSeconds * 1000,
+    responseDisposition: `attachment; filename="${enc}"; filename*=UTF-8''${enc}`,
+    responseType: contentType,
+  });
+  return url;
+}
+
+/**
  * Generate a signed PUT URL for direct browser-to-GCS upload.
  * The caller must PUT to the returned URL with the same Content-Type header.
  * Default TTL is 15 minutes (900 s); adjust via expiresInSeconds.

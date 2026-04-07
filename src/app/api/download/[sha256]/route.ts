@@ -1,11 +1,10 @@
 export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
-import { Readable } from 'stream';
 import { getFileBySha256, logDownload } from '@/lib/db';
 import { verifyToken } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
-import { getGCSReadStream } from '@/lib/gcs';
+import { generateSignedDownloadUrl } from '@/lib/gcs';
 
 export async function GET(
   request: NextRequest,
@@ -65,21 +64,19 @@ export async function GET(
       console.error('[download] phase=%s error=%s', 'db-log', String(logErr));
     }
 
-    // Open GCS read stream and convert to Web ReadableStream
-    phase = 'gcs-stream';
-    const nodeStream = getGCSReadStream(record.gcs_key);
-    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+    // Generate a short-lived signed GCS URL and redirect the client directly.
+    // Streaming through Cloud Run hits a 32MB response size limit — redirecting
+    // to GCS bypasses the proxy entirely and supports files of any size.
+    phase = 'gcs-sign';
+    const signedUrl = await generateSignedDownloadUrl(
+      record.gcs_key,
+      record.original_name,
+      record.content_type,
+    );
 
     console.log('[download] file=%d sha256=%s', record.id, sha256);
 
-    const enc = encodeURIComponent(record.original_name);
-    return new Response(webStream, {
-      headers: {
-        'Content-Type': record.content_type,
-        'Content-Disposition': `attachment; filename="${enc}"; filename*=UTF-8''${enc}`,
-        'Content-Length': String(record.size),
-      },
-    });
+    return Response.redirect(signedUrl, 302);
   } catch (err) {
     console.error('[download] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });

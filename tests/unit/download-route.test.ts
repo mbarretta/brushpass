@@ -1,15 +1,17 @@
 /**
  * Route-handler unit tests for GET /api/download/[sha256]
  *
- * Focuses on the Content-Disposition header: verifies RFC 6266 dual-parameter
- * form for both plain ASCII filenames and filenames containing spaces.
+ * Since the route now redirects to a signed GCS URL (bypassing the Cloud Run
+ * 32MB response size limit), tests verify:
+ *   - hex guard (404 for invalid sha256)
+ *   - 302 redirect to a signed URL that encodes the correct Content-Disposition
+ *     parameters in responseDisposition
  *
  * Kept in a separate file from download.test.ts so that vi.mock hoisting
  * here does not interfere with the real-DB tests in that file.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { Readable } from 'stream';
 
 // ---------------------------------------------------------------------------
 // Module mocks — hoisted by Vitest before any imports
@@ -20,7 +22,7 @@ vi.mock('@/lib/token', () => ({
 }));
 
 vi.mock('@/lib/gcs', () => ({
-  getGCSReadStream: vi.fn().mockReturnValue(Readable.from([''])),
+  generateSignedDownloadUrl: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -60,7 +62,9 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
     vi.mocked((await import('@/lib/token')).verifyToken).mockResolvedValue(true);
-    vi.mocked((await import('@/lib/gcs')).getGCSReadStream).mockReturnValue(Readable.from(['']));
+    vi.mocked((await import('@/lib/gcs')).generateSignedDownloadUrl).mockResolvedValue(
+      'https://storage.googleapis.com/signed',
+    );
   });
 
   it('returns 404 with validation phase for a non-hex sha256', async () => {
@@ -74,7 +78,7 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
   });
 
   it('returns 404 for a 63-char hex string (wrong length)', async () => {
-    const shortHex = 'a'.repeat(63); // 63 chars — one short of valid SHA-256
+    const shortHex = 'a'.repeat(63);
     const { GET } = await import('@/app/api/download/[sha256]/route');
     const req = new Request(`http://localhost/api/download/${shortHex}?token=valid`);
     const res = await GET(req as never, { params: Promise.resolve({ sha256: shortHex }) });
@@ -85,15 +89,16 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
   });
 });
 
-describe('GET /api/download/[sha256] route handler — Content-Disposition', () => {
+describe('GET /api/download/[sha256] route handler — signed redirect', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
-    // Re-apply default implementations after reset
     vi.mocked((await import('@/lib/token')).verifyToken).mockResolvedValue(true);
-    vi.mocked((await import('@/lib/gcs')).getGCSReadStream).mockReturnValue(Readable.from(['']));
+    vi.mocked((await import('@/lib/gcs')).generateSignedDownloadUrl).mockResolvedValue(
+      'https://storage.googleapis.com/signed',
+    );
   });
 
-  it('emits RFC 6266 dual-parameter header for plain ASCII filename', async () => {
+  it('returns 302 redirect to signed GCS URL', async () => {
     vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(
       makeRecord('report.pdf'),
     );
@@ -102,22 +107,24 @@ describe('GET /api/download/[sha256] route handler — Content-Disposition', () 
     const req = new Request(`http://localhost/api/download/${VALID_SHA256}?token=valid`);
     const res = await GET(req as never, { params: Promise.resolve({ sha256: VALID_SHA256 }) });
 
-    expect(res.headers.get('Content-Disposition')).toBe(
-      `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`,
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://storage.googleapis.com/signed');
   });
 
-  it('percent-encodes spaces in dual-parameter header', async () => {
+  it('passes correct originalName and contentType to generateSignedDownloadUrl', async () => {
     vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(
       makeRecord('my report 2026.pdf'),
     );
 
     const { GET } = await import('@/app/api/download/[sha256]/route');
     const req = new Request(`http://localhost/api/download/${VALID_SHA256}?token=valid`);
-    const res = await GET(req as never, { params: Promise.resolve({ sha256: VALID_SHA256 }) });
+    await GET(req as never, { params: Promise.resolve({ sha256: VALID_SHA256 }) });
 
-    expect(res.headers.get('Content-Disposition')).toBe(
-      `attachment; filename="my%20report%202026.pdf"; filename*=UTF-8''my%20report%202026.pdf`,
+    const gcs = await import('@/lib/gcs');
+    expect(vi.mocked(gcs.generateSignedDownloadUrl)).toHaveBeenCalledWith(
+      `${VALID_SHA256}.pdf`,
+      'my report 2026.pdf',
+      'application/pdf',
     );
   });
 });
