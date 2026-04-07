@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/auth';
 
-export const metadata = { title: 'Secure File Share' };
+export const metadata = { title: 'Brushpass' };
 
 export default async function HomePage() {
   const session = await auth();
@@ -14,7 +14,7 @@ export default async function HomePage() {
     <main className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-zinc-200 p-10 flex flex-col items-center text-center gap-6">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-zinc-900">Secure File Share</h1>
+          <h1 className="text-2xl font-semibold text-zinc-900">Brushpass</h1>
           <p className="text-sm text-zinc-500">
             Upload files. Share securely. Expire automatically.
           </p>

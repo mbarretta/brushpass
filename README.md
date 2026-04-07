@@ -1,6 +1,6 @@
-# Secure File Share
+# Brushpass
 
-A self-hosted secure file sharing application. Authenticated users upload files to GCP Cloud Storage and receive a shareable URL plus a one-time-shown download token. Anyone with the URL and token can download the file — no account required. Files can have optional TTLs with active cleanup. An admin panel provides file management, expiration control, download metrics, and user management.
+Brushpass is a self-hosted secure file transfer tool. Authenticated users upload files to GCP Cloud Storage and receive a shareable URL plus a one-time-shown download token. Anyone with the URL and token can download the file — no account required. Files can have optional TTLs with active cleanup. An admin panel provides file management, expiration control, download metrics, and user management.
 
 ## Contents
 
@@ -294,7 +294,7 @@ Create `/etc/systemd/system/fileshare.service`:
 
 ```ini
 [Unit]
-Description=Secure File Share
+Description=Brushpass
 After=network.target
 
 [Service]

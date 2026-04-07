@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Secure File Share",
+  title: "Brushpass",
   description: "Authenticated file upload with expiring download tokens.",
 };
 
