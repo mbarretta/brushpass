@@ -99,6 +99,14 @@ variable "bootstrap_admin_pass" {
   description = "Password for the initial admin account. Set before the first apply. Delete the Terraform-managed secrets after bootstrap is verified."
 }
 
+# ── Custom domain ─────────────────────────────────────────────────────────────
+
+variable "custom_domain" {
+  type        = string
+  default     = ""
+  description = "Custom domain hostname (e.g. fileshare.cgr-pubsec.dev). When set, added to GCS CORS allowed origins alongside the run.app URI. Set in terraform.tfvars."
+}
+
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 
 variable "artifact_registry_repo" {
