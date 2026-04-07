@@ -120,7 +120,7 @@ export default async function AdminFileDetailPage({
         </div>
 
         {/* Mutations (client component) */}
-        <AdminFileActions fileId={safeFile.id} expiresAt={safeFile.expires_at} />
+        <AdminFileActions fileId={safeFile.id} expiresAt={safeFile.expires_at} sha256={safeFile.sha256} />
 
         {/* Download log table */}
         <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">

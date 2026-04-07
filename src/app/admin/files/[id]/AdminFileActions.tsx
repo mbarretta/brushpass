@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 interface AdminFileActionsProps {
   fileId: number;
   expiresAt: number | null;
+  sha256: string;
 }
 
 function unixToDatetimeLocal(unix: number | null): string {
@@ -19,7 +20,7 @@ function unixToDatetimeLocal(unix: number | null): string {
   );
 }
 
-export default function AdminFileActions({ fileId, expiresAt }: AdminFileActionsProps) {
+export default function AdminFileActions({ fileId, expiresAt, sha256 }: AdminFileActionsProps) {
   const router = useRouter();
   const [expiryValue, setExpiryValue] = useState<string>(unixToDatetimeLocal(expiresAt));
   const [saving, setSaving] = useState(false);
@@ -32,6 +33,7 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
   const [copiedRegen, setCopiedRegen] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -100,6 +102,14 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
     }
   }
 
+  function copyDownloadUrl() {
+    const url = `${window.location.origin}/${sha256}`;
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopiedUrl(false), 2000);
+  }
+
   function copyRegenToken() {
     if (!regenToken) return;
     navigator.clipboard.writeText(regenToken);
@@ -136,13 +146,21 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
           Generates a short-lived signed URL (15 min) and opens the file directly. Does not affect the recipient&apos;s download token.
         </p>
-        <button
-          onClick={handleDownload}
-          disabled={downloading}
-          className="rounded-lg bg-blue-600 text-white text-sm font-medium px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          {downloading ? 'Preparing…' : 'Download File'}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="rounded-lg bg-blue-600 text-white text-sm font-medium px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {downloading ? 'Preparing…' : 'Download File'}
+          </button>
+          <button
+            onClick={copyDownloadUrl}
+            className="rounded-lg border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-medium px-4 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            {copiedUrl ? 'Copied!' : 'Copy Download URL'}
+          </button>
+        </div>
         {downloadError && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{downloadError}</p>
         )}
