@@ -24,8 +24,10 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
   const [expiryValue, setExpiryValue] = useState<string>(unixToDatetimeLocal(expiresAt));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [regenToken, setRegenToken] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
@@ -37,6 +39,24 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     };
   }, []);
+
+  async function handleDownload() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await fetch(`/api/admin/files/${fileId}/download`);
+      const data = await res.json();
+      if (!res.ok) {
+        setDownloadError(data.error ?? 'Failed to generate download link');
+        return;
+      }
+      window.open(data.url as string, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setDownloadError(String(err));
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   async function handleSaveExpiry() {
     setSaving(true);
@@ -110,6 +130,25 @@ export default function AdminFileActions({ fileId, expiresAt }: AdminFileActions
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-6 space-y-6">
       <div>
+        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
+          Download
+        </h2>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">
+          Generates a short-lived signed URL (15 min) and opens the file directly. Does not affect the recipient&apos;s download token.
+        </p>
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="rounded-lg bg-blue-600 text-white text-sm font-medium px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {downloading ? 'Preparing…' : 'Download File'}
+        </button>
+        {downloadError && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{downloadError}</p>
+        )}
+      </div>
+
+      <div className="border-t border-zinc-100 dark:border-zinc-800 pt-6">
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
           Update Expiry
         </h2>
