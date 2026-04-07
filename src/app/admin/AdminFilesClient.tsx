@@ -118,12 +118,6 @@ export default function AdminFilesClient({ files }: Props) {
                 : `Delete ${selected.size} file${selected.size === 1 ? '' : 's'}`}
             </button>
           )}
-          <Link
-            href="/admin/users"
-            className="rounded-lg border border-zinc-300 dark:border-zinc-700 text-sm text-zinc-700 dark:text-zinc-300 font-medium px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          >
-            Users →
-          </Link>
         </div>
       </div>
 
