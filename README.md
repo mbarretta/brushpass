@@ -1,3 +1,6 @@
+
+<img width="500" alt="brushpass-logo-horizontal" src="https://github.com/user-attachments/assets/f2602517-020f-467d-93f3-0d99dbbfd723" />
+
 # Brushpass
 
 Brushpass is a self-hosted secure file transfer tool. Authenticated users upload files to GCP Cloud Storage and receive a shareable URL plus a one-time-shown download token. Anyone with the URL and token can download the file — no account required. Files can have optional TTLs with active cleanup. An admin panel provides file management, expiration control, download metrics, and user management.
