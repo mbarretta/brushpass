@@ -37,7 +37,6 @@ export default function RootLayout({
             height={50}
             width={50}
             className="rounded-lg"
-            priority
           />
         </div>
         <NavBar />
