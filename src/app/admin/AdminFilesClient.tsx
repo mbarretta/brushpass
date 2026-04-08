@@ -157,7 +157,7 @@ export default function AdminFilesClient({ files, fileGroups }: Props) {
                 <th className="text-left px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium">Expiry</th>
                 <th className="text-right px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium">Downloads</th>
                 <th className="text-left px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium">Uploaded</th>
-                <th className="text-left px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium">Uploaded By</th>
+                <th className="text-left px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium whitespace-nowrap">Uploaded By</th>
                 <th className="text-left px-5 py-3 text-zinc-500 dark:text-zinc-400 font-medium">Groups</th>
               </tr>
             </thead>
