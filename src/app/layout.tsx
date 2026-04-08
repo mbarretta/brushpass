@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Image from "next/image";
 import "./globals.css";
 import NavBar from "./NavBar";
 
@@ -29,6 +30,16 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <div className="fixed top-3 left-4 z-50">
+          <Image
+            src="/brushpass-logo.png"
+            alt="Brushpass"
+            height={50}
+            width={50}
+            className="rounded-lg"
+            priority
+          />
+        </div>
         <NavBar />
         {children}
         <footer className="mt-auto py-3 text-center">
