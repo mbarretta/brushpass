@@ -41,10 +41,22 @@ export default function RootLayout({
         </div>
         <NavBar />
         {children}
-        <footer className="mt-auto py-3 text-center">
-          <span className="font-mono text-xs text-zinc-300 dark:text-zinc-700 select-none">
-            rev: {process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev'}
-          </span>
+        <footer className="mt-auto py-3 text-center space-y-1">
+          <div>
+            <a
+              href="https://github.com/mbarretta/brushpass"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
+            >
+              Brushpass
+            </a>
+          </div>
+          <div>
+            <span className="font-mono text-xs text-zinc-300 dark:text-zinc-700 select-none">
+              rev: {process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev'}
+            </span>
+          </div>
         </footer>
       </body>
     </html>
