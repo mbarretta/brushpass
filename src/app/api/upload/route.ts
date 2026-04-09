@@ -37,6 +37,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!filename || !contentType || size == null) {
       return NextResponse.json({ error: 'Missing required fields', phase: 'prepare' }, { status: 400 });
     }
+    const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
+    if (typeof size !== 'number' || size <= 0 || size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: 'Invalid file size', phase: 'prepare' }, { status: 400 });
+    }
+    // Basic MIME type format validation: type/subtype with optional suffix/params
+    if (typeof contentType !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*/.test(contentType)) {
+      return NextResponse.json({ error: 'Invalid content type', phase: 'prepare' }, { status: 400 });
+    }
 
     const resolveExpiry = (fallback: number | null) =>
       expires_in

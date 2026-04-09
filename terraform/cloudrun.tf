@@ -86,6 +86,8 @@ resource "google_cloud_run_v2_service" "fileshare" {
         }
       }
 
+      # CLEANUP_SECRET retained for local development / manual curl testing.
+      # Production cleanup is authenticated via OIDC (see scheduler.tf).
       env {
         name = "CLEANUP_SECRET"
         value_source {
@@ -94,6 +96,11 @@ resource "google_cloud_run_v2_service" "fileshare" {
             version = "latest"
           }
         }
+      }
+
+      env {
+        name  = "CLEANUP_SCHEDULER_SA"
+        value = google_service_account.fileshare_scheduler.email
       }
 
       dynamic "env" {

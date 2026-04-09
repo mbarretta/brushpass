@@ -84,6 +84,13 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
       if (!Array.isArray(permissions)) {
         return Response.json({ error: 'permissions must be an array', phase }, { status: 400 });
       }
+      const VALID_PERMISSIONS: Permission[] = ['upload', 'admin'];
+      if (!(permissions as unknown[]).every((p) => VALID_PERMISSIONS.includes(p as Permission))) {
+        return Response.json(
+          { error: 'permissions contains invalid values; allowed: upload, admin', phase },
+          { status: 400 },
+        );
+      }
       patch.permissions = permissions as Permission[];
     }
 

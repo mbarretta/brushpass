@@ -256,9 +256,13 @@ export function getDownloadLogCount(fileId: number): number {
 
 export function listFiles(limit = 500): (FileRecord & { download_count: number })[] {
   const db = getDb();
+  // Explicit column list excludes token_hash — it is never needed for listing
+  // and should not transit in-process memory unnecessarily.
   return db
     .prepare<[number], FileRecord & { download_count: number }>(
-      `SELECT f.*, COUNT(dl.id) as download_count
+      `SELECT f.id, f.filename, f.original_name, f.sha256, f.size, f.content_type,
+              f.gcs_key, f.expires_at, f.uploaded_at, f.uploaded_by,
+              COUNT(dl.id) as download_count
        FROM files f
        LEFT JOIN download_logs dl ON dl.file_id = f.id
        GROUP BY f.id

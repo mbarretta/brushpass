@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM cgr.dev/barretta/node:25-dev AS builder
+# Base image digests pinned 2026-04-09. Update intentionally when patching base images.
+# Refresh with: docker buildx imagetools inspect cgr.dev/barretta/node:25-dev
+FROM cgr.dev/barretta/node:25-dev@sha256:f9e7dc32fc6e4a15430c770da340ce1bc11e6bd1c6195e7eab940a16922eecd6 AS builder
 USER root
 RUN apk add --no-cache gcc make python3
 USER 65532
@@ -12,7 +14,7 @@ ARG COMMIT_SHA=dev
 ENV NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
-FROM cgr.dev/barretta/node:25-slim AS runner
+FROM cgr.dev/barretta/node:25-slim@sha256:54af6ed065bcfd022492f42f3c889acd4e7171137c1edb3a0daf076c5060ff7e AS runner
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /app/.next ./.next
 COPY --from=builder --chown=65532:65532 /app/node_modules ./node_modules

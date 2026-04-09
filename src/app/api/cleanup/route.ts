@@ -1,25 +1,48 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { getExpiredFiles, deleteFile } from '@/lib/db';
 import { deleteFromGCS } from '@/lib/gcs';
 
+// The audience must match the Cloud Run service URI (no trailing slash).
+// Set AUTH_URL in production; falls back to CLEANUP_AUDIENCE for local testing.
+const OIDC_AUDIENCE = process.env.AUTH_URL ?? process.env.CLEANUP_AUDIENCE ?? '';
+const SCHEDULER_SA = process.env.CLEANUP_SCHEDULER_SA ?? '';
+
+const oidcClient = new OAuth2Client();
+
+async function verifyOidcToken(token: string): Promise<boolean> {
+  try {
+    const ticket = await oidcClient.verifyIdToken({ idToken: token, audience: OIDC_AUDIENCE });
+    const payload = ticket.getPayload();
+    if (!payload) return false;
+    // Verify the token was issued by the scheduler service account.
+    if (SCHEDULER_SA && payload.email !== SCHEDULER_SA) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const secret = process.env.CLEANUP_SECRET;
-  if (!secret) {
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const authHeader = req.headers.get('authorization') ?? '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  // Use constant-time comparison to prevent timing oracle attacks on the secret.
-  const tokenBuf = Buffer.from(token);
+  // Accept either a valid OIDC token from the scheduler SA (production)
+  // or the CLEANUP_SECRET for local development / manual testing.
+  const secret = process.env.CLEANUP_SECRET ?? '';
   const secretBuf = Buffer.from(secret);
-  if (
-    tokenBuf.length !== secretBuf.length ||
-    !crypto.timingSafeEqual(tokenBuf, secretBuf)
-  ) {
+  const tokenBuf = Buffer.from(token);
+  const secretMatch =
+    secret.length > 0 &&
+    tokenBuf.length === secretBuf.length &&
+    require('crypto').timingSafeEqual(tokenBuf, secretBuf);
+
+  if (!secretMatch && !(await verifyOidcToken(token))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

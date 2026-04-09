@@ -53,6 +53,13 @@ export async function POST(request: NextRequest): Promise<Response> {
         { status: 400 },
       );
     }
+    const VALID_PERMISSIONS: Permission[] = ['upload', 'admin'];
+    if (!(permissions as unknown[]).every((p) => VALID_PERMISSIONS.includes(p as Permission))) {
+      return Response.json(
+        { error: 'permissions contains invalid values; allowed: upload, admin', phase: 'body-parse' },
+        { status: 400 },
+      );
+    }
 
     phase = 'hash';
     const password_hash = await hashPassword(password);
