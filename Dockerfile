@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM cgr.dev/barretta/node:25-dev AS builder
 USER root
 RUN apk add --no-cache gcc make python3
