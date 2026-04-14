@@ -80,3 +80,7 @@ coverage/
 
 # ── GSD baseline (auto-generated) ──
 .gsd-id
+
+# ── chainguard local session ──
+.chainguard/
+Dockerfile.migrated
