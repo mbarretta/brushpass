@@ -44,7 +44,7 @@ export default async function AdminGroupDetailPage({
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3 mb-2">
           <Link href="/admin/groups" className="text-sm text-zinc-500 hover:underline">
-            ← Groups
+            ← File Groups
           </Link>
           <span className="text-zinc-300 dark:text-zinc-700">/</span>
           <span className="text-sm text-zinc-900 dark:text-zinc-100 font-medium">{group.name}</span>

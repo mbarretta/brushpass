@@ -5,8 +5,8 @@ import { usePathname } from 'next/navigation';
 
 const tabs = [
   { label: 'Files', href: '/admin' },
+  { label: 'File Groups', href: '/admin/groups' },
   { label: 'Users', href: '/admin/users' },
-  { label: 'Groups', href: '/admin/groups' },
 ] as const;
 
 export default function AdminNav({ pendingCount = 0 }: { pendingCount?: number }) {

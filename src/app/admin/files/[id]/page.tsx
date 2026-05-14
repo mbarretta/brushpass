@@ -119,7 +119,7 @@ export default async function AdminFileDetailPage({
             <p className="text-zinc-900 dark:text-zinc-100 font-semibold">{totalLogs}</p>
           </div>
           <div className="px-5 py-3 text-sm">
-            <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Groups</p>
+            <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">File Groups</p>
             {fileGroupsList.length === 0 ? (
               <p className="text-zinc-400">—</p>
             ) : (

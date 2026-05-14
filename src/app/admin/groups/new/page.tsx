@@ -15,7 +15,7 @@ export default async function AdminGroupNewPage() {
       <div className="max-w-md mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <Link href="/admin/groups" className="text-sm text-zinc-500 hover:underline">
-            ← Groups
+            ← File Groups
           </Link>
         </div>
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mb-6">New Group</h1>
