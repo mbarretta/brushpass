@@ -38,6 +38,8 @@ locals {
     "cloudscheduler.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
+    "sts.googleapis.com",            # WIF token exchange
+    "iamcredentials.googleapis.com", # SA impersonation via WIF
   ]
 }
 

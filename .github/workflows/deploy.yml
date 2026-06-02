@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    # Skip pushes that can't change the running image (infra/docs/CI only).
+    paths-ignore:
+      - "terraform/**"
+      - "**/*.md"
+      - ".github/**"
+  workflow_dispatch:
+
+# Serialize deploys; let an in-flight deploy finish rather than cancel it.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write # federate OIDC token to GCP (WIF) + gitsign/chainctl
+
+    env:
+      PROJECT_ID: pubsec-se
+      REGION: us-central1
+      SERVICE: fileshare
+      IMAGE: us-central1-docker.pkg.dev/pubsec-se/cloud-run-source-deploy/fileshare
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # cgr.dev auth so the build can pull the private barretta/node base images.
+      - uses: chainguard-dev/setup-chainctl@2cddd35a2f120d9973e58094dc6878c93cf58c28 # v0.5.1
+        with:
+          identity: ${{ secrets.CHAINCTL_IDENTITY }}
+
+      # Federate the workflow OIDC token and impersonate github-deployer. No key.
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/759231903324/locations/global/workloadIdentityPools/github-pool/providers/github-oidc
+          service_account: github-deployer@pubsec-se.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Configure docker auth for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      # Build linux/amd64, tagging both :latest (tracks Terraform's container_image)
+      # and the commit SHA (immutable, for traceability and rollback).
+      - name: Build and push image
+        run: |
+          docker build \
+            --build-arg COMMIT_SHA="${GITHUB_SHA::7}" \
+            -t "${IMAGE}:latest" \
+            -t "${IMAGE}:${GITHUB_SHA}" \
+            .
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${GITHUB_SHA}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run services update "${SERVICE}" \
+            --image "${IMAGE}:${GITHUB_SHA}" \
+            --region "${REGION}" \
+            --project "${PROJECT_ID}" \
+            --quiet
+          echo "Deployed ${SERVICE} @ ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"

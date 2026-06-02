@@ -47,3 +47,15 @@ output "cloud_dns_nameservers" {
   description = "Google Cloud DNS nameservers — set these at your domain registrar."
   value       = google_dns_managed_zone.cgr_pubsec_dev.name_servers
 }
+
+# ── CI/CD (Workload Identity Federation) ──────────────────────────────────────
+
+output "workload_identity_provider" {
+  description = "Full WIF provider resource name for google-github-actions/auth."
+  value       = google_iam_workload_identity_pool_provider.github.name
+}
+
+output "deployer_service_account_email" {
+  description = "Email of the SA the deploy workflow impersonates via WIF."
+  value       = google_service_account.github_deployer.email
+}

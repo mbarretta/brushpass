@@ -11,6 +11,14 @@ variable "region" {
   description = "GCP region for Cloud Run, Artifact Registry, and Cloud Scheduler."
 }
 
+# ── CI/CD ─────────────────────────────────────────────────────────────────────
+
+variable "github_repository" {
+  type        = string
+  default     = "mbarretta/brushpass"
+  description = "owner/repo allowed to federate via Workload Identity and deploy."
+}
+
 # ── Image ─────────────────────────────────────────────────────────────────────
 
 variable "container_image" {
