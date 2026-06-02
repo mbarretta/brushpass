@@ -1,0 +1,10 @@
+# Octo STS trust policy for the digestabot workflow.
+# Lets the update-digests workflow (running on main) federate its GitHub Actions
+# OIDC token for a short-lived, repo-scoped App token instead of a long-lived PAT.
+# Consumed by the octo-sts hosted service at https://octo-sts.dev.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:mbarretta/brushpass:ref:refs/heads/main
+
+permissions:
+  contents: write       # push the update-digests branch
+  pull_requests: write  # open and enable auto-merge on the PR
