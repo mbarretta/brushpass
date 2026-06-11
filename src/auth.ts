@@ -59,6 +59,56 @@ const oidcProvider: any = oidcEnabled
     }
   : null;
 
+// ── OIDC permission resolution (exported, reusable) ──────────────────────────
+/**
+ * Subset of OIDC ID-token claims needed to resolve a user's app permissions.
+ * Sourced from the verified ID token (UI login) or a brokered device-grant
+ * exchange (agent mint route) — both must resolve permissions identically.
+ */
+export interface OidcUserClaims {
+  email?: string | null;
+  name?: string | null;
+}
+
+/** Result of resolving an OIDC user: the upserted DB identity plus permissions. */
+export interface ResolvedOidcUser {
+  id: number;
+  email: string;
+  permissions: Permission[];
+}
+
+/**
+ * Single source of truth for turning verified OIDC ID-token claims into an
+ * app user + permissions. Applies the AUTH_OIDC_ADMIN_DOMAIN auto-promote rule
+ * (admin-domain → ['upload','admin'], otherwise []) and upserts the user via
+ * upsertOidcUser, returning the persisted identity.
+ *
+ * Both jwtCallback (UI login) and the agent mint route (t5) call this so an
+ * agent receives exactly the permissions it would get logging into the UI.
+ */
+export async function resolveOidcUserPermissions(
+  claims: OidcUserClaims,
+): Promise<ResolvedOidcUser> {
+  const email = claims.email ?? '';
+  const domain = email.split('@')[1] ?? '';
+  const adminDomain = process.env.AUTH_OIDC_ADMIN_DOMAIN ?? '';
+  const autoPromote = adminDomain !== '' && domain === adminDomain;
+  const autoPermissions: Permission[] = autoPromote ? ['upload', 'admin'] : [];
+
+  // Lazy import — keeps better-sqlite3 off the Edge runtime code path
+  const { upsertOidcUser } = await import('@/lib/db');
+  const dbUser = await upsertOidcUser(email, claims.name ?? email, autoPermissions);
+
+  console.log(
+    '[auth] action=oidc-login email=%s domain=%s auto_promote=%s result=success',
+    email,
+    domain,
+    String(autoPromote),
+  );
+
+  return { id: dbUser.id, email, permissions: dbUser.permissions };
+}
+
 // ── JWT callback (exported for unit tests) ───────────────────────────────────
 /**
  * Handles all three jwt() invocation paths:
@@ -79,27 +129,12 @@ export async function jwtCallback({
   if (!user && !account) return token;
 
   if (account?.type === 'oidc' && user) {
-    const email = (user as { email?: string | null }).email ?? '';
-    const domain = email.split('@')[1] ?? '';
-    const adminDomain = process.env.AUTH_OIDC_ADMIN_DOMAIN ?? '';
-    const autoPromote = adminDomain !== '' && domain === adminDomain;
-    const autoPermissions: Permission[] = autoPromote ? ['upload', 'admin'] : [];
+    const resolved = await resolveOidcUserPermissions(user as OidcUserClaims);
 
-    // Lazy import — keeps better-sqlite3 off the Edge runtime code path
-    const { upsertOidcUser } = await import('@/lib/db');
-    const dbUser = await upsertOidcUser(email, (user as { name?: string | null }).name ?? email, autoPermissions);
-
-    console.log(
-      '[auth] action=oidc-login email=%s domain=%s auto_promote=%s result=success',
-      email,
-      domain,
-      String(autoPromote),
-    );
-
-    token.id = String(dbUser.id);
-    token.username = email;
-    token.email = email;
-    token.permissions = dbUser.permissions;
+    token.id = String(resolved.id);
+    token.username = resolved.email;
+    token.email = resolved.email;
+    token.permissions = resolved.permissions;
     return token;
   }
 
