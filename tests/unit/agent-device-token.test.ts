@@ -214,7 +214,7 @@ describe('POST /api/agent/device/token', () => {
 
     const jose = await import('jose');
     vi.mocked(jose.jwtVerify).mockResolvedValue({
-      payload: { email: 'agent@chainguard.dev', name: 'Agent' },
+      payload: { email: 'agent@chainguard.dev', email_verified: true, name: 'Agent' },
     } as never);
 
     const auth = await import('@/auth');
@@ -285,7 +285,7 @@ describe('POST /api/agent/device/token', () => {
 
     const jose = await import('jose');
     vi.mocked(jose.jwtVerify).mockResolvedValue({
-      payload: { email: 'intruder@evil.example', name: 'Intruder' },
+      payload: { email: 'intruder@evil.example', email_verified: true, name: 'Intruder' },
     } as never);
 
     const { POST } = await importRoute();
@@ -296,5 +296,52 @@ describe('POST /api/agent/device/token', () => {
 
     const agentKey = await import('@/lib/agent-key');
     expect(vi.mocked(agentKey.mintAgentKey)).not.toHaveBeenCalled();
+  });
+
+  it('rejects with 403 and drops the session when the verified email is not email_verified', async () => {
+    await setSessionMock(makeSession());
+    stubTokenEndpoint(200, { id_token: 'GOOGLE_ID_TOKEN', token_type: 'Bearer' });
+
+    const jose = await import('jose');
+    vi.mocked(jose.jwtVerify).mockResolvedValue({
+      payload: { email: 'agent@chainguard.dev', email_verified: false, name: 'Agent' },
+    } as never);
+
+    const { POST } = await importRoute();
+    const res = await POST(makeRequest({ poll_token: POLL_TOKEN }) as never);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ status: 'error', error: 'email_unverified' });
+
+    // Must reject before resolving permissions or minting a key.
+    const auth = await import('@/auth');
+    expect(vi.mocked(auth.resolveOidcUserPermissions)).not.toHaveBeenCalled();
+    const agentKey = await import('@/lib/agent-key');
+    expect(vi.mocked(agentKey.mintAgentKey)).not.toHaveBeenCalled();
+    // Single-use session is dropped so the agent stops polling.
+    const db = await import('@/lib/db');
+    expect(vi.mocked(db.deleteDeviceSession)).toHaveBeenCalledWith(POLL_TOKEN_HASH);
+  });
+
+  it('rejects with 403 and drops the session when email_verified is absent', async () => {
+    await setSessionMock(makeSession());
+    stubTokenEndpoint(200, { id_token: 'GOOGLE_ID_TOKEN', token_type: 'Bearer' });
+
+    const jose = await import('jose');
+    vi.mocked(jose.jwtVerify).mockResolvedValue({
+      // No email_verified claim at all — an unverified email must not mint.
+      payload: { email: 'agent@chainguard.dev', name: 'Agent' },
+    } as never);
+
+    const { POST } = await importRoute();
+    const res = await POST(makeRequest({ poll_token: POLL_TOKEN }) as never);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ status: 'error', error: 'email_unverified' });
+
+    const agentKey = await import('@/lib/agent-key');
+    expect(vi.mocked(agentKey.mintAgentKey)).not.toHaveBeenCalled();
+    const db = await import('@/lib/db');
+    expect(vi.mocked(db.deleteDeviceSession)).toHaveBeenCalledWith(POLL_TOKEN_HASH);
   });
 });
