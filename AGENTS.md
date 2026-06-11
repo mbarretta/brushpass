@@ -31,15 +31,19 @@ sensitivity:
 | `AGENT_OIDC_CLIENT_SECRET` | `.env` | Secret. Same as above. |
 | `AGENT_KEY_TTL_SECONDS` | `.env` (optional) | Minted-key lifetime; default `900`. |
 | `AGENT_KEY_SECRET` | `.env` (optional) | Dedicated signing secret; falls back to `AUTH_SECRET` when unset. |
-| `oidc_issuer` | `terraform/terraform.tfvars` | **Non-secret** (e.g. `https://accounts.google.com`). Emitted as `AUTH_OIDC_ISSUER`. **Required** for the agent flow — without it discovery fails with `AUTH_OIDC_ISSUER is not configured`. |
-| `oidc_admin_domain` | `terraform/terraform.tfvars` | **Non-secret** (e.g. `example.com`). Emitted as `AUTH_OIDC_ADMIN_DOMAIN`; the minted key gets `upload`/`admin` only for accounts in this domain. |
+| `oidc_issuer` | `.env` (`AUTH_OIDC_ISSUER`) **or** `terraform.tfvars` | **Non-secret** (e.g. `https://accounts.google.com`). Emitted as `AUTH_OIDC_ISSUER`. **Required** for the agent flow — without it discovery fails with `AUTH_OIDC_ISSUER is not configured`. |
+| `oidc_admin_domain` | `.env` (`AUTH_OIDC_ADMIN_DOMAIN`) **or** `terraform.tfvars` | **Non-secret** (e.g. `example.com`). Emitted as `AUTH_OIDC_ADMIN_DOMAIN`; the minted key gets `upload`/`admin` only for accounts in this domain. |
 
 **Why the split — Terraform variable precedence:** `TF_VAR_*` env vars are
-Terraform's *lowest*-priority source, so any value present in `terraform.tfvars`
-(even an empty string) overrides them. The secrets therefore stay in `.env`
-(and must be **absent** from `terraform.tfvars`), while the non-secret
-`oidc_issuer` / `oidc_admin_domain` live in `terraform.tfvars` where both deploy
-scripts honor them.
+Terraform's *lowest*-priority source, so any value **present** in
+`terraform.tfvars` overrides them — **including an empty string `""`**, which
+Terraform treats as a real value, not as "unset". So:
+
+- Agent **secrets** stay in `.env` and must be **absent** from `terraform.tfvars`.
+- `oidc_issuer` / `oidc_admin_domain` may come from **either** `.env` or
+  `terraform.tfvars`. If you keep them in `.env`, make sure they are **not**
+  present as empty strings in `terraform.tfvars` (omit the keys entirely) —
+  otherwise the `""` silently wins and the agent flow loses its issuer.
 
 For local dev, set all of the above `.env` vars **plus** `AUTH_OIDC_ISSUER` and
 `AUTH_OIDC_ADMIN_DOMAIN` in `.env` (locally there is no Terraform; the app reads

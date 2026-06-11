@@ -28,17 +28,22 @@ bootstrap_admin_pass = "CHANGE_ME_BEFORE_APPLY"
 # ── OIDC issuer + admin domain (non-secret) ───────────────────────────────────
 # These two are consumed by BOTH interactive OIDC login AND the agent
 # device-grant flow (which reuses the issuer for endpoint discovery and the
-# admin domain for permission resolution). Set them here whenever you enable
-# EITHER feature. They are non-secret, so terraform.tfvars is their home.
+# admin domain for permission resolution).
 #
 #   - oidc_issuer is REQUIRED for the agent flow; without it device-grant fails
 #     with "AUTH_OIDC_ISSUER is not configured".
 #   - oidc_admin_domain controls which accounts get upload+admin on the minted
-#     key (and on first interactive OIDC sign-in). Leave empty to require manual
+#     key (and on first interactive OIDC sign-in). Leave unset to require manual
 #     permission grants.
+#
+# You may supply these EITHER here OR via .env (AUTH_OIDC_ISSUER /
+# AUTH_OIDC_ADMIN_DOMAIN), which the deploy scripts map to TF_VAR_*.
+# ⚠️  Do NOT set them to an empty string ("") here — to Terraform that is a real
+# value that OVERRIDES the .env/TF_VAR_ value (TF_VAR_* is lowest precedence).
+# To let .env supply them, leave these keys commented out / absent entirely.
 
-oidc_issuer       = ""   # e.g. "https://accounts.google.com"
-oidc_admin_domain = ""   # e.g. "example.com"
+# oidc_issuer       = "https://accounts.google.com"
+# oidc_admin_domain = "example.com"
 
 # ── Optional: interactive OIDC (SSO) login ────────────────────────────────────
 # Enables the "Sign in with SSO" button. Requires oidc_issuer (above) PLUS these

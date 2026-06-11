@@ -25,9 +25,10 @@ load_config() {
 # any value also present in terraform.tfvars wins over what we export here.
 #   - Agent secrets (agent_oidc_client_id/secret, agent_key_secret): keep these
 #     OUT of terraform.tfvars so the .env values below take effect.
-#   - Non-secret oidc_issuer / oidc_admin_domain: these belong in
-#     terraform.tfvars (it wins, and both deploy.sh and apply.sh honor it). The
-#     exports below are a convenience fallback for when they are absent there.
+#   - Non-secret oidc_issuer / oidc_admin_domain: may live in .env (exported
+#     below) OR in terraform.tfvars. Do not put them in terraform.tfvars as
+#     empty strings — "" is a real value that overrides these exports; omit the
+#     keys there if you want .env to supply them.
 #
 # Called by deploy.sh and apply.sh. Safe to call when .env is missing or when
 # the agent feature is intentionally disabled (no agent creds) — it just exports
