@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import { resolveBearerAuth } from '@/lib/agent-key';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -10,9 +11,14 @@ interface RateLimitEntry { count: number; windowStart: number }
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
-  login:    { max: 10, windowMs: 60_000 },
-  download: { max: 30, windowMs: 60_000 },
-  account:  { max:  3, windowMs: 60_000 },
+  login:        { max: 10, windowMs: 60_000 },
+  download:     { max: 30, windowMs: 60_000 },
+  account:      { max:  3, windowMs: 60_000 },
+  // Agent device-grant endpoints. device_start opens a new device session;
+  // device_token is the agent's polling loop, capped per IP here while the
+  // token route additionally enforces the per-poll_token advertised interval.
+  device_start: { max:  5, windowMs: 60_000 },
+  device_token: { max: 30, windowMs: 60_000 },
 };
 
 function getClientIp(req: NextRequest): string {
@@ -23,7 +29,7 @@ function getClientIp(req: NextRequest): string {
   );
 }
 
-function isRateLimited(category: string, ip: string): boolean {
+export function isRateLimited(category: string, ip: string): boolean {
   const limit = RATE_LIMITS[category];
   if (!limit) return false;
 
@@ -41,10 +47,12 @@ function isRateLimited(category: string, ip: string): boolean {
   return false;
 }
 
-function getRateLimitCategory(pathname: string): string | null {
+export function getRateLimitCategory(pathname: string): string | null {
   if (pathname === '/api/auth/callback/credentials') return 'login';
   if (pathname.startsWith('/api/download/')) return 'download';
   if (pathname === '/api/account') return 'account';
+  if (pathname === '/api/agent/device/start') return 'device_start';
+  if (pathname === '/api/agent/device/token') return 'device_token';
   return null;
 }
 
@@ -93,6 +101,15 @@ function requiresUpload(pathname: string): boolean {
   return pathname === '/upload' || pathname.startsWith('/api/upload');
 }
 
+/**
+ * A Bearer agent key may only drive the upload *API* — never the `/upload`
+ * page (which is a browser/cookie surface) and never admin routes (cookie-only
+ * by design). Returns true for `/api/upload*` paths.
+ */
+function bearerAllowedPath(pathname: string): boolean {
+  return pathname.startsWith('/api/upload');
+}
+
 export default auth(async function proxy(req) {
   const { pathname } = req.nextUrl;
   const session = req.auth;
@@ -123,8 +140,20 @@ export default auth(async function proxy(req) {
     return res;
   }
 
-  // Not authenticated — redirect to /login with callbackUrl
+  // No cookie session. Before redirecting to /login, allow a valid agent
+  // Bearer key to drive the upload API. resolveBearerAuth (jose-only, edge-safe)
+  // verifies the aud:"upload" key; admin routes are never reachable this way.
   if (!session) {
+    if (bearerAllowedPath(pathname)) {
+      const bearer = await resolveBearerAuth(req);
+      if (bearer && (bearer.permissions.includes('upload') || bearer.permissions.includes('admin'))) {
+        const res = NextResponse.next();
+        Object.entries(securityHeaders).forEach(([k, v]) => res.headers.set(k, v));
+        return res;
+      }
+    }
+
+    // Not authenticated — redirect to /login with callbackUrl
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = '/login';
     loginUrl.searchParams.set('callbackUrl', req.nextUrl.pathname);
