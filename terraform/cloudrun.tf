@@ -75,6 +75,16 @@ resource "google_cloud_run_v2_service" "fileshare" {
         }
       }
 
+      # Agent key TTL is not sensitive — set as a plain env var whenever the
+      # agent device-grant client is enabled.
+      dynamic "env" {
+        for_each = local.agent_oidc_enabled ? [var.agent_key_ttl_seconds] : []
+        content {
+          name  = "AGENT_KEY_TTL_SECONDS"
+          value = tostring(env.value)
+        }
+      }
+
       # ── Secret-sourced environment variables ────────────────────────────────
       env {
         name = "AUTH_SECRET"
@@ -123,6 +133,47 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.oidc_client_secret[0].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.agent_oidc_enabled ? [1] : []
+        content {
+          name = "AGENT_OIDC_CLIENT_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.agent_oidc_client_id[0].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.agent_oidc_enabled ? [1] : []
+        content {
+          name = "AGENT_OIDC_CLIENT_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.agent_oidc_client_secret[0].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # Optional dedicated agent key-signing secret; when unset the app falls
+      # back to AUTH_SECRET, so no env var is wired.
+      dynamic "env" {
+        for_each = local.agent_key_secret_set ? [1] : []
+        content {
+          name = "AGENT_KEY_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.agent_key_secret[0].secret_id
               version = "latest"
             }
           }

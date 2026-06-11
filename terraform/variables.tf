@@ -98,6 +98,39 @@ variable "oidc_admin_domain" {
   description = "Email domain whose users automatically receive upload+admin permissions on first OIDC sign-in (e.g. \"example.com\"). Leave empty to disable auto-promotion — all OIDC users start with no permissions."
 }
 
+# ── Agent device-grant OIDC + key minting (optional) ──────────────────────────
+# A second Google OAuth client of type "TVs and Limited Input devices" drives the
+# brokered Device Authorization Grant used to mint short-lived agent upload keys.
+# Register it manually (see AGENTS.md) and populate the two values below. Both
+# must be set together to enable the agent device-grant endpoints.
+
+variable "agent_oidc_client_id" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "OAuth client ID for the agent device-grant client (\"TVs and Limited Input devices\" type). Leave empty to disable the agent device-grant endpoints. Must be set together with agent_oidc_client_secret."
+}
+
+variable "agent_oidc_client_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "OAuth client secret for the agent device-grant client. Must be set together with agent_oidc_client_id."
+}
+
+variable "agent_key_ttl_seconds" {
+  type        = number
+  default     = 900
+  description = "Lifetime in seconds of a minted agent upload key (aud:\"upload\" JWT). Defaults to 900 (15 minutes); clamped to a sane maximum by the app."
+}
+
+variable "agent_key_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Optional dedicated signing secret for agent upload keys. Leave empty to fall back to AUTH_SECRET (the app default)."
+}
+
 # ── Bootstrap admin credentials ───────────────────────────────────────────────
 
 variable "bootstrap_admin_user" {
