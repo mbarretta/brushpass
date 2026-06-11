@@ -27,7 +27,7 @@ vi.mock('next-auth', () => ({
   }),
 }));
 
-import { getRateLimitCategory, isRateLimited } from '@/proxy';
+import { getRateLimitCategory, isRateLimited, isPublicRoute } from '@/proxy';
 import { mintAgentKey, resolveBearerAuth, AGENT_KEY_ISSUER } from '@/lib/agent-key';
 
 const TEST_SECRET = 'test-proxy-agent-key-secret-value-1234567890';
@@ -91,6 +91,74 @@ describe('isRateLimited()', () => {
     for (let i = 0; i < 1000; i++) {
       expect(isRateLimited('not-a-category', '10.0.2.1')).toBe(false);
     }
+  });
+});
+
+describe('isPublicRoute()', () => {
+  // The full auth()-wrapped default export can't be driven in the Node test env
+  // (see file header), so we assert the gate's decision helper directly: a path
+  // that isPublicRoute() returns true for is allowed through (NextResponse.next())
+  // before the `if (!session)` block ever reaches the 307 redirect to /login.
+  it('treats the agent device-grant endpoints as public (no /login redirect)', () => {
+    // Remediates obs1: an unauthenticated agent — the only intended caller of the
+    // device grant — must reach these handlers instead of being redirected.
+    expect(isPublicRoute('/api/agent/device/start')).toBe(true);
+    expect(isPublicRoute('/api/agent/device/token')).toBe(true);
+  });
+
+  it('still requires auth for the upload API, the upload page, and admin routes', () => {
+    // Unchanged behavior: /api/upload* stays cookie-or-Bearer, /upload is a cookie
+    // page, admin routes are cookie-only — none of these are public.
+    expect(isPublicRoute('/api/upload')).toBe(false);
+    expect(isPublicRoute('/api/upload/complete')).toBe(false);
+    expect(isPublicRoute('/upload')).toBe(false);
+    expect(isPublicRoute('/admin')).toBe(false);
+    expect(isPublicRoute('/api/admin/users')).toBe(false);
+  });
+
+  it('does not expose other /api/agent/* paths via a loose prefix', () => {
+    // The fix matches the two exact device paths only.
+    expect(isPublicRoute('/api/agent')).toBe(false);
+    expect(isPublicRoute('/api/agent/device')).toBe(false);
+    expect(isPublicRoute('/api/agent/device/start/extra')).toBe(false);
+    expect(isPublicRoute('/api/agent/other')).toBe(false);
+  });
+
+  it('keeps the existing public routes public', () => {
+    expect(isPublicRoute('/login')).toBe(true);
+    expect(isPublicRoute('/')).toBe(true);
+    expect(isPublicRoute('/api/auth/session')).toBe(true);
+    expect(isPublicRoute('/api/download/abc')).toBe(true);
+  });
+});
+
+describe('rate limiting still applies to the now-public device endpoints', () => {
+  // The device endpoints are public, but the rate-limit check runs first in the
+  // proxy (before isPublicRoute), so device_start/device_token still fire. These
+  // assert the two pieces the gate composes for those paths.
+  it('still categorizes the public device endpoints for rate limiting', () => {
+    expect(getRateLimitCategory('/api/agent/device/start')).toBe('device_start');
+    expect(getRateLimitCategory('/api/agent/device/token')).toBe('device_token');
+  });
+
+  it('still enforces the device_start cap on the public start endpoint', () => {
+    const category = getRateLimitCategory('/api/agent/device/start')!;
+    const ip = '10.0.3.1';
+    let limited = false;
+    for (let i = 0; i < 6; i++) {
+      limited = isRateLimited(category, ip);
+    }
+    expect(limited).toBe(true);
+  });
+
+  it('still enforces the device_token cap on the public token endpoint', () => {
+    const category = getRateLimitCategory('/api/agent/device/token')!;
+    const ip = '10.0.3.2';
+    let limited = false;
+    for (let i = 0; i < 31; i++) {
+      limited = isRateLimited(category, ip);
+    }
+    expect(limited).toBe(true);
   });
 });
 
