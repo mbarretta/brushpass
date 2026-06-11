@@ -68,9 +68,16 @@ if (typeof setInterval !== 'undefined') {
   }, 5 * 60_000);
 }
 
-function isPublicRoute(pathname: string): boolean {
+export function isPublicRoute(pathname: string): boolean {
   // Auth.js own API routes
   if (pathname.startsWith('/api/auth/')) return true;
+  // Agent device-grant endpoints (RFC 8628). These are unauthenticated-by-design:
+  // the agent caller has no cookie session — it hits these precisely to obtain a
+  // scoped upload key. They are self-protected by the device-grant flow and by the
+  // device_start/device_token rate-limit categories (applied above, before this
+  // check). Matched as exact paths so no other /api/agent/* route is exposed.
+  if (pathname === '/api/agent/device/start') return true;
+  if (pathname === '/api/agent/device/token') return true;
   // Login page
   if (pathname === '/login') return true;
   // Logout route — must be public so unauthenticated browsers aren't redirect-looped
