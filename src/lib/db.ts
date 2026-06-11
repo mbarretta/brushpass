@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS file_group_members (
   added_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (group_id, file_id)
 );
+CREATE TABLE IF NOT EXISTS agent_device_sessions (
+  poll_token_hash TEXT PRIMARY KEY,
+  device_code     TEXT NOT NULL,
+  interval        INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
 `;
 
 // ── Schema migrations ─────────────────────────────────────────────────────────
@@ -61,6 +68,20 @@ CREATE TABLE IF NOT EXISTS file_group_members (
 // user_version=0 means "no migrations applied yet".
 
 const MIGRATIONS: Record<number, (db: Database.Database) => void> = {
+  4: (db) => {
+    // Add agent_device_sessions for the brokered device-grant flow. Keyed by a
+    // hash of the opaque poll_token (never the raw poll_token); the raw
+    // device_code lives only here, server-side. Idempotent via IF NOT EXISTS.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_device_sessions (
+        poll_token_hash TEXT PRIMARY KEY,
+        device_code     TEXT NOT NULL,
+        interval        INTEGER NOT NULL,
+        expires_at      INTEGER NOT NULL,
+        created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+  },
   3: (db) => {
     // Add email, auth_provider columns to users; make password_hash nullable.
     // Also create permission_requests table.
@@ -292,6 +313,69 @@ export function getExpiredFiles(): FileRecord[] {
   return db
     .prepare<[], FileRecord>(
       'SELECT * FROM files WHERE expires_at IS NOT NULL AND expires_at < unixepoch() ORDER BY expires_at ASC',
+    )
+    .all();
+}
+
+// ── Agent device-session helpers ───────────────────────────────────────────────
+// Server-side store for the brokered OAuth 2.0 Device Authorization Grant.
+// The agent never holds the raw device_code; it polls with an opaque poll_token,
+// only the SHA-256 hash of which is stored here (poll_token_hash). Sessions are
+// TTL-pruned by the same cleanup path as expired files (see getExpiredDeviceSessions).
+
+export interface AgentDeviceSession {
+  poll_token_hash: string;
+  device_code: string;
+  interval: number;
+  expires_at: number;
+  created_at: number;
+}
+
+type InsertDeviceSessionData = Omit<AgentDeviceSession, 'created_at'>;
+
+export function createDeviceSession(data: InsertDeviceSessionData): AgentDeviceSession {
+  const db = getDb();
+  db
+    .prepare<InsertDeviceSessionData>(
+      `INSERT INTO agent_device_sessions (poll_token_hash, device_code, interval, expires_at)
+       VALUES (@poll_token_hash, @device_code, @interval, @expires_at)`,
+    )
+    .run(data);
+  const record = getDeviceSessionByPollTokenHash(data.poll_token_hash);
+  if (!record) throw new Error('createDeviceSession: row not found after insert');
+  return record;
+}
+
+export function getDeviceSessionByPollTokenHash(hash: string): AgentDeviceSession | undefined {
+  const db = getDb();
+  return db
+    .prepare<[string], AgentDeviceSession>(
+      'SELECT * FROM agent_device_sessions WHERE poll_token_hash = ?',
+    )
+    .get(hash);
+}
+
+export function updateDeviceSessionInterval(hash: string, interval: number): void {
+  const db = getDb();
+  db
+    .prepare<[number, string]>(
+      'UPDATE agent_device_sessions SET interval = ? WHERE poll_token_hash = ?',
+    )
+    .run(interval, hash);
+}
+
+export function deleteDeviceSession(hash: string): void {
+  const db = getDb();
+  db
+    .prepare<[string]>('DELETE FROM agent_device_sessions WHERE poll_token_hash = ?')
+    .run(hash);
+}
+
+export function getExpiredDeviceSessions(): AgentDeviceSession[] {
+  const db = getDb();
+  return db
+    .prepare<[], AgentDeviceSession>(
+      'SELECT * FROM agent_device_sessions WHERE expires_at < unixepoch() ORDER BY expires_at ASC',
     )
     .all();
 }

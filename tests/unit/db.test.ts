@@ -109,3 +109,119 @@ describe('insertFile / getFileBySha256 / getFileById', () => {
     expect(getFileById(99999)).toBeUndefined();
   });
 });
+
+describe('agent_device_sessions migration (user_version=4)', () => {
+  it('creates the agent_device_sessions table', async () => {
+    const { getDb } = await import('@/lib/db');
+    const db = getDb();
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all() as { name: string }[];
+    expect(tables.map((t) => t.name)).toContain('agent_device_sessions');
+  });
+
+  it('advances user_version to at least 4', async () => {
+    const { getDb } = await import('@/lib/db');
+    const db = getDb();
+    const version = db.pragma('user_version', { simple: true }) as number;
+    expect(version).toBeGreaterThanOrEqual(4);
+  });
+
+  it('table has the expected columns with poll_token_hash as primary key', async () => {
+    const { getDb } = await import('@/lib/db');
+    const db = getDb();
+    const cols = db
+      .prepare("SELECT name, pk FROM pragma_table_info('agent_device_sessions')")
+      .all() as { name: string; pk: number }[];
+    const names = cols.map((c) => c.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'poll_token_hash',
+        'device_code',
+        'interval',
+        'expires_at',
+        'created_at',
+      ]),
+    );
+    const pk = cols.find((c) => c.name === 'poll_token_hash');
+    expect(pk?.pk).toBe(1);
+  });
+});
+
+describe('device session helpers', () => {
+  const FUTURE = Math.floor(Date.now() / 1000) + 3600;
+
+  it('createDeviceSession round-trips through getDeviceSessionByPollTokenHash', async () => {
+    const { createDeviceSession, getDeviceSessionByPollTokenHash } = await import('@/lib/db');
+    const created = createDeviceSession({
+      poll_token_hash: 'hash-abc',
+      device_code: 'device-code-xyz',
+      interval: 5,
+      expires_at: FUTURE,
+    });
+    expect(created.poll_token_hash).toBe('hash-abc');
+    expect(created.device_code).toBe('device-code-xyz');
+    expect(created.interval).toBe(5);
+    expect(created.expires_at).toBe(FUTURE);
+    expect(created.created_at).toBeGreaterThan(0);
+
+    const found = getDeviceSessionByPollTokenHash('hash-abc');
+    expect(found).toBeDefined();
+    expect(found!.device_code).toBe('device-code-xyz');
+  });
+
+  it('getDeviceSessionByPollTokenHash returns undefined for unknown hash', async () => {
+    const { getDeviceSessionByPollTokenHash } = await import('@/lib/db');
+    expect(getDeviceSessionByPollTokenHash('nope')).toBeUndefined();
+  });
+
+  it('updateDeviceSessionInterval updates only the interval', async () => {
+    const { createDeviceSession, updateDeviceSessionInterval, getDeviceSessionByPollTokenHash } =
+      await import('@/lib/db');
+    createDeviceSession({
+      poll_token_hash: 'hash-upd',
+      device_code: 'dc',
+      interval: 5,
+      expires_at: FUTURE,
+    });
+    updateDeviceSessionInterval('hash-upd', 10);
+    const found = getDeviceSessionByPollTokenHash('hash-upd');
+    expect(found!.interval).toBe(10);
+    expect(found!.device_code).toBe('dc');
+    expect(found!.expires_at).toBe(FUTURE);
+  });
+
+  it('deleteDeviceSession removes the row', async () => {
+    const { createDeviceSession, deleteDeviceSession, getDeviceSessionByPollTokenHash } =
+      await import('@/lib/db');
+    createDeviceSession({
+      poll_token_hash: 'hash-del',
+      device_code: 'dc',
+      interval: 5,
+      expires_at: FUTURE,
+    });
+    deleteDeviceSession('hash-del');
+    expect(getDeviceSessionByPollTokenHash('hash-del')).toBeUndefined();
+  });
+
+  it('getExpiredDeviceSessions returns only sessions past expires_at', async () => {
+    const { createDeviceSession, getExpiredDeviceSessions } = await import('@/lib/db');
+    const past = Math.floor(Date.now() / 1000) - 60;
+    createDeviceSession({
+      poll_token_hash: 'hash-expired',
+      device_code: 'dc-old',
+      interval: 5,
+      expires_at: past,
+    });
+    createDeviceSession({
+      poll_token_hash: 'hash-fresh',
+      device_code: 'dc-new',
+      interval: 5,
+      expires_at: FUTURE,
+    });
+    const expired = getExpiredDeviceSessions();
+    const hashes = expired.map((s) => s.poll_token_hash);
+    expect(hashes).toContain('hash-expired');
+    expect(hashes).not.toContain('hash-fresh');
+  });
+});
