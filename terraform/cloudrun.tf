@@ -58,9 +58,12 @@ resource "google_cloud_run_v2_service" "fileshare" {
         value = var.file_bucket_name
       }
 
-      # OIDC issuer and admin domain are not sensitive — set as plain env vars
+      # OIDC issuer and admin domain are not sensitive — set as plain env vars.
+      # Gated on oidc_issuer_set / oidc_admin_domain_set (see secrets.tf locals)
+      # so they are emitted for the agent device-grant flow even when the
+      # interactive OIDC login client is not configured.
       dynamic "env" {
-        for_each = local.oidc_enabled ? [var.oidc_issuer] : []
+        for_each = local.oidc_issuer_set ? [var.oidc_issuer] : []
         content {
           name  = "AUTH_OIDC_ISSUER"
           value = env.value

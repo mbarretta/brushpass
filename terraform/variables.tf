@@ -75,7 +75,7 @@ variable "cloud_run_cpu" {
 variable "oidc_issuer" {
   type        = string
   default     = ""
-  description = "OIDC issuer URL (e.g. https://accounts.google.com). Leave empty to disable OIDC. All three OIDC variables must be set together."
+  description = "OIDC issuer URL (e.g. https://accounts.google.com). Used by both interactive OIDC login and the agent device-grant flow (for endpoint discovery), so set it whenever either the interactive OIDC client or the agent client is configured. The interactive client additionally requires oidc_client_id + oidc_client_secret; the agent flow does not."
 }
 
 variable "oidc_client_id" {

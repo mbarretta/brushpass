@@ -47,6 +47,17 @@ if [[ -n "${AGENT_KEY_SECRET:-}" ]]; then
   export TF_VAR_agent_key_secret="$AGENT_KEY_SECRET"
 fi
 
+# OIDC issuer + admin domain (non-secret). The agent device-grant flow needs
+# AUTH_OIDC_ISSUER for endpoint discovery and AUTH_OIDC_ADMIN_DOMAIN for
+# permission resolution; map them through so a deploy from .env is reproducible.
+# Only exported when set, so they don't clobber an existing tfvars value.
+if [[ -n "${AUTH_OIDC_ISSUER:-}" ]]; then
+  export TF_VAR_oidc_issuer="$AUTH_OIDC_ISSUER"
+fi
+if [[ -n "${AUTH_OIDC_ADMIN_DOMAIN:-}" ]]; then
+  export TF_VAR_oidc_admin_domain="$AUTH_OIDC_ADMIN_DOMAIN"
+fi
+
 cd "$SCRIPT_DIR"
 if [[ $# -eq 0 ]]; then
   terraform apply

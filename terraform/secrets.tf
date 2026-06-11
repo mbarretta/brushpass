@@ -112,13 +112,22 @@ locals {
     var.oidc_client_id != "" &&
     var.oidc_client_secret != ""
   )
-  oidc_admin_domain_set = local.oidc_enabled && var.oidc_admin_domain != ""
-
   # Agent device-grant client: both id and secret must be set together.
   agent_oidc_enabled = (
     var.agent_oidc_client_id != "" &&
     var.agent_oidc_client_secret != ""
   )
+
+  # AUTH_OIDC_ISSUER and AUTH_OIDC_ADMIN_DOMAIN are non-sensitive plain env vars
+  # that BOTH the interactive OIDC login and the agent device-grant flow need
+  # (the agent flow reuses the issuer for endpoint discovery and the admin
+  # domain for permission resolution). They are therefore emitted whenever
+  # either client is enabled — decoupled from the interactive-client secrets,
+  # which stay gated on local.oidc_enabled below. Without this, enabling only
+  # the agent client would leave AUTH_OIDC_ISSUER unset and the device-grant
+  # endpoints would fail discovery.
+  oidc_issuer_set       = (local.oidc_enabled || local.agent_oidc_enabled) && var.oidc_issuer != ""
+  oidc_admin_domain_set = (local.oidc_enabled || local.agent_oidc_enabled) && var.oidc_admin_domain != ""
   # Optional dedicated agent key-signing secret; empty falls back to AUTH_SECRET.
   agent_key_secret_set = var.agent_key_secret != ""
 }
