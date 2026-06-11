@@ -220,3 +220,104 @@ describe('jwtCallback()', () => {
     expect(result.permissions).toEqual([]);
   });
 });
+
+// ── resolveOidcUserPermissions — extracted reusable helper ────────────────────
+//
+// The extracted function is the single source of truth that both jwtCallback
+// (UI login) and the agent mint route (t5) call. We exercise it directly for
+// admin-domain and non-admin-domain claims, with @/lib/db's upsertOidcUser mocked.
+
+describe('resolveOidcUserPermissions()', () => {
+  it('admin-domain claims → auto-promotes to [upload,admin] and upserts with those permissions', async () => {
+    process.env.AUTH_OIDC_ADMIN_DOMAIN = 'chainguard.dev';
+
+    const mockUpsert = vi.fn().mockResolvedValue({
+      id: 7,
+      username: 'alice@chainguard.dev',
+      email: 'alice@chainguard.dev',
+      auth_provider: 'oidc',
+      password_hash: null,
+      permissions: ['upload', 'admin'],
+      created_at: 1234567890,
+    });
+
+    vi.doMock('@/lib/db', async (importOriginal) => {
+      const orig = await importOriginal<typeof import('@/lib/db')>();
+      return { ...orig, upsertOidcUser: mockUpsert };
+    });
+    vi.resetModules();
+
+    const { resolveOidcUserPermissions } = await import('@/auth');
+    const resolved = await resolveOidcUserPermissions({
+      email: 'alice@chainguard.dev',
+      name: 'Alice',
+    });
+
+    expect(mockUpsert).toHaveBeenCalledWith('alice@chainguard.dev', 'Alice', [
+      'upload',
+      'admin',
+    ]);
+    expect(resolved.id).toBe(7);
+    expect(resolved.email).toBe('alice@chainguard.dev');
+    expect(resolved.permissions).toEqual(['upload', 'admin']);
+  });
+
+  it('non-admin-domain claims → no auto-promote, upserts with [] permissions', async () => {
+    process.env.AUTH_OIDC_ADMIN_DOMAIN = 'chainguard.dev';
+
+    const mockUpsert = vi.fn().mockResolvedValue({
+      id: 8,
+      username: 'bob@gmail.com',
+      email: 'bob@gmail.com',
+      auth_provider: 'oidc',
+      password_hash: null,
+      permissions: [],
+      created_at: 1234567890,
+    });
+
+    vi.doMock('@/lib/db', async (importOriginal) => {
+      const orig = await importOriginal<typeof import('@/lib/db')>();
+      return { ...orig, upsertOidcUser: mockUpsert };
+    });
+    vi.resetModules();
+
+    const { resolveOidcUserPermissions } = await import('@/auth');
+    const resolved = await resolveOidcUserPermissions({
+      email: 'bob@gmail.com',
+      name: 'Bob',
+    });
+
+    expect(mockUpsert).toHaveBeenCalledWith('bob@gmail.com', 'Bob', []);
+    expect(resolved.id).toBe(8);
+    expect(resolved.permissions).toEqual([]);
+  });
+
+  it('falls back to email as upsert name when claims.name is absent', async () => {
+    process.env.AUTH_OIDC_ADMIN_DOMAIN = 'chainguard.dev';
+
+    const mockUpsert = vi.fn().mockResolvedValue({
+      id: 9,
+      username: 'carol@example.com',
+      email: 'carol@example.com',
+      auth_provider: 'oidc',
+      password_hash: null,
+      permissions: [],
+      created_at: 1234567890,
+    });
+
+    vi.doMock('@/lib/db', async (importOriginal) => {
+      const orig = await importOriginal<typeof import('@/lib/db')>();
+      return { ...orig, upsertOidcUser: mockUpsert };
+    });
+    vi.resetModules();
+
+    const { resolveOidcUserPermissions } = await import('@/auth');
+    await resolveOidcUserPermissions({ email: 'carol@example.com' });
+
+    expect(mockUpsert).toHaveBeenCalledWith(
+      'carol@example.com',
+      'carol@example.com',
+      [],
+    );
+  });
+});
