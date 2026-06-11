@@ -25,38 +25,44 @@ db_bucket_name = "pubsec-fileshare-db"
 bootstrap_admin_user = "admin"
 bootstrap_admin_pass = "CHANGE_ME_BEFORE_APPLY"
 
-# ── Optional: OIDC login ──────────────────────────────────────────────────────
-# Leave all three empty to disable OIDC. All three must be non-empty to enable.
-# Create an OAuth 2.0 Client ID in GCP Console first:
-#   APIs & Services → Credentials → OAuth 2.0 Client ID
-#   Authorized redirect URI: {service_url}/api/auth/callback/oidc
-#   (the exact URI is printed as the oidc_callback_url output after apply)
+# ── OIDC issuer + admin domain (non-secret) ───────────────────────────────────
+# These two are consumed by BOTH interactive OIDC login AND the agent
+# device-grant flow (which reuses the issuer for endpoint discovery and the
+# admin domain for permission resolution). Set them here whenever you enable
+# EITHER feature. They are non-secret, so terraform.tfvars is their home.
+#
+#   - oidc_issuer is REQUIRED for the agent flow; without it device-grant fails
+#     with "AUTH_OIDC_ISSUER is not configured".
+#   - oidc_admin_domain controls which accounts get upload+admin on the minted
+#     key (and on first interactive OIDC sign-in). Leave empty to require manual
+#     permission grants.
 
-oidc_issuer        = ""   # e.g. "https://accounts.google.com"
+oidc_issuer       = ""   # e.g. "https://accounts.google.com"
+oidc_admin_domain = ""   # e.g. "example.com"
+
+# ── Optional: interactive OIDC (SSO) login ────────────────────────────────────
+# Enables the "Sign in with SSO" button. Requires oidc_issuer (above) PLUS these
+# two from a "Web application" OAuth client whose authorized redirect URI is
+# {service_url}/api/auth/callback/oidc (printed as the oidc_callback_url output).
+# NOT needed for the agent device-grant flow.
+
 oidc_client_id     = ""   # SENSITIVE — do not commit
 oidc_client_secret = ""   # SENSITIVE — do not commit
 
-# Optional: auto-grant upload+admin to users whose email matches this domain
-# on their first OIDC sign-in. Leave empty to require manual permission grants.
-# oidc_admin_domain = ""  # e.g. "example.com"
-
-# ── Optional: agent device-grant + key minting ────────────────────────────────
-# Lets an autonomous agent obtain a short-lived, upload-scoped key via the OAuth
-# Device Authorization Grant. Register a SECOND Google OAuth client of type
-# "TVs and Limited Input devices" (APIs & Services → Credentials → Create
-# credentials → OAuth client ID → Application type: TVs and Limited Input
-# devices) and populate the two values below. Both must be set together to
-# enable the agent device-grant endpoints. See AGENTS.md for the full step.
-
-# agent_oidc_client_id     = ""   # SENSITIVE — do not commit
-# agent_oidc_client_secret = ""   # SENSITIVE — do not commit
-
-# Lifetime (seconds) of a minted agent upload key. Defaults to 900 (15 minutes).
-# agent_key_ttl_seconds = 900
-
-# Optional dedicated signing secret for agent keys. Leave empty to reuse
-# AUTH_SECRET (the app default).
-# agent_key_secret = ""   # SENSITIVE — do not commit
+# ── Agent device-grant secrets live in .env, NOT here ─────────────────────────
+# The agent client id/secret are sourced from the repo-root .env by the deploy
+# scripts (deploy.sh / apply.sh, via common.sh -> load_env_tfvars) and passed to
+# Terraform as TF_VAR_*. Do NOT add agent_oidc_client_id / agent_oidc_client_secret
+# / agent_key_secret here: TF_VAR_* is the lowest-precedence source, so an entry
+# in this file (even an empty "") would OVERRIDE the value from .env and silently
+# break the feature. Set these in .env instead:
+#
+#   AGENT_OIDC_CLIENT_ID=...        # from the "TVs and Limited Input devices" client
+#   AGENT_OIDC_CLIENT_SECRET=...
+#   AGENT_KEY_TTL_SECONDS=900       # optional; minted-key lifetime, default 900
+#   AGENT_KEY_SECRET=...            # optional; falls back to AUTH_SECRET when unset
+#
+# See AGENTS.md for the full setup, including registering the second OAuth client.
 
 # ── Custom domain (optional) ──────────────────────────────────────────────────
 # When set, this hostname is added to the GCS bucket CORS policy so that
