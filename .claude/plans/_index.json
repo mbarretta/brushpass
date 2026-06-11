@@ -1,0 +1,21 @@
+{
+  "plans": [
+    {
+      "slug": "design-agent-upload-key-minting",
+      "title": "Design: short-lived API key minting for agent uploads via brokered device grant",
+      "mode": "design",
+      "status": "complete",
+      "created": "2026-06-11T15:00:00Z"
+    },
+    {
+      "slug": "feat-agent-upload-key-minting",
+      "title": "Implement short-lived agent upload-key minting via brokered device grant",
+      "mode": "dev",
+      "status": "complete",
+      "created": "2026-06-11T16:30:00Z",
+      "waves": { "total": 3, "next": null, "done": 3 },
+      "note": "Complete: 8 planned tasks + 2 remediation tasks (wave 3) merged to main; security audit clean after remediation (obs1+sec1 resolved). Not pushed — reconcile with origin/main before PR.",
+      "verification": "npm run lint && npm test && npm run build"
+    }
+  ]
+}

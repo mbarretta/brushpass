@@ -1,0 +1,596 @@
+{
+  "slug": "feat-agent-upload-key-minting",
+  "title": "Implement short-lived agent upload-key minting via brokered device grant",
+  "mode": "dev",
+  "created": "2026-06-11T16:30:00Z",
+  "status": "complete",
+  "verification": "npm run lint && npm test && npm run build",
+  "parallelism": "auto",
+  "signing_disabled": true,
+  "context": "Implements the approved design in .claude/plans/agent-upload-key-minting.md: a brokered OAuth 2.0 Device Authorization Grant (RFC 8628) that lets an autonomous agent obtain a short-lived, audience-scoped JWT (aud:\"upload\", 5-15m) to drive the existing upload API without ever seeing the confidential Google OIDC client secret. The app brokers the Google exchange, verifies the returned ID token, resolves permissions exactly as UI login does, and mints the scoped key. Upload routes + proxy middleware accept this Bearer alongside the existing cookie session; the bytes path (signed GCS PUT) is unchanged. Repo facts confirmed at plan time: next-auth v5 handles session JWTs internally with no direct jose/jsonwebtoken dependency (so jose must be added); OIDC discovery is internal to Auth.js (so a discovery-fetch util is new); DB is better-sqlite3 with a versioned migration system at user_version=3; rate limiting is inline in proxy.ts (categories login/download/account, keyed category:ip); tests are Vitest under tests/unit/*.test.ts with vi.mock. NOTE for implementers: AGENTS.md warns this is a modified Next.js - read node_modules/next/dist/docs/ before writing route/runtime code. The 2nd Google OAuth client ('TVs and Limited Input devices') is a manual console step, out of scope for code.",
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Agent-key JWT util + OIDC discovery util (add jose)",
+      "status": "complete",
+      "depends_on": [],
+      "why": "Core mint/verify and endpoint discovery that every device route and the Bearer-accepting paths depend on; centralizing it prevents two sources of truth for signing, audience scoping, and Bearer resolution.",
+      "files": [
+        "src/lib/agent-key.ts",
+        "src/lib/oidc-discovery.ts",
+        "package.json",
+        "package-lock.json",
+        "tests/unit/agent-key.test.ts",
+        "tests/unit/oidc-discovery.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "jose is added as a direct dependency; src/lib/agent-key.ts exports mintAgentKey(claims) producing an HS256 JWT with claims sub, username, permissions, aud:\"upload\", iss:\"brushpass\", iat, exp, jti, with TTL from AGENT_KEY_TTL_SECONDS (default 900, clamped to a sane maximum) and signed with AGENT_KEY_SECRET ?? AUTH_SECRET.",
+          "critical": true
+        },
+        {
+          "criterion": "verifyAgentKey(token) verifies signature, iss, and exp and rejects unless aud === \"upload\"; returns decoded claims on success or null on any failure. Implementation uses jose only (no node-only crypto APIs) so it runs in the edge middleware.",
+          "critical": true
+        },
+        {
+          "criterion": "resolveBearerAuth(request) reads the Authorization: Bearer header, calls verifyAgentKey, and returns { username, permissions } or null; this single helper is what the upload routes (t6) and proxy (t7) import so there is one Bearer-resolution implementation.",
+          "critical": true
+        },
+        {
+          "criterion": "src/lib/oidc-discovery.ts fetches {AUTH_OIDC_ISSUER}/.well-known/openid-configuration and returns at least device_authorization_endpoint and token_endpoint (and jwks_uri), with the document cached; no Google endpoint URLs are hardcoded.",
+          "critical": true
+        },
+        {
+          "criterion": "Unit tests cover mint->verify round-trip, wrong-aud rejection, expired-token rejection, missing/garbage Bearer header, and discovery-document parsing (fetch mocked).",
+          "critical": false
+        },
+        {
+          "criterion": "The minted key, the signing secret, and the device_code are never logged.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T19:45:00Z",
+          "commit": "77f9340",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "All 4 critical + 2 non-critical ACs met. jose@^6.2.3 direct dep; mintAgentKey HS256 (aud=upload/iss=brushpass, TTL clamped, AGENT_KEY_SECRET??AUTH_SECRET); verifyAgentKey jose-only/edge-safe, rejects non-upload aud, null on failure; resolveBearerAuth single Bearer path; oidc-discovery caches well-known, no hardcoded Google URLs. Scoped eslint clean, 230/230 tests, no secret logging. Global lint/build exit-1 is pre-existing baseline."
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "agent_device_sessions DB store (migration v4)",
+      "status": "complete",
+      "depends_on": [],
+      "why": "Server-side device-code storage keyed by an opaque poll_token so the agent never holds the raw device_code, and so polling sessions can be rate-limited and TTL-pruned.",
+      "files": [
+        "src/lib/db.ts",
+        "tests/unit/db.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "A migration to user_version=4 creates agent_device_sessions(poll_token_hash TEXT PRIMARY KEY, device_code TEXT, interval INTEGER, expires_at INTEGER, created_at INTEGER), following the existing versioned-migration pattern in src/lib/db.ts and remaining idempotent.",
+          "critical": true
+        },
+        {
+          "criterion": "Prepared-statement helpers exist matching the existing better-sqlite3 style: createDeviceSession(...), getDeviceSessionByPollTokenHash(hash), updateDeviceSessionInterval(hash, interval), deleteDeviceSession(hash), and an expired-session selector (mirroring getExpiredFiles).",
+          "critical": true
+        },
+        {
+          "criterion": "Only a hash of poll_token is stored (never the raw poll_token); the raw device_code lives only server-side in this table.",
+          "critical": true
+        },
+        {
+          "criterion": "Expired device sessions are reachable by the existing cleanup path (the expired-session selector mirrors getExpiredFiles so /api/cleanup can prune them).",
+          "critical": false
+        },
+        {
+          "criterion": "Unit tests cover create/get/update-interval/delete and the expiry selector against a temp/in-memory DB.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T19:45:00Z",
+          "commit": "128aec8",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Migration v4 creates agent_device_sessions with exact columns + poll_token_hash PK, registered in MIGRATIONS map keyed by target version and bumped in a transaction like v1-v3, idempotent via CREATE TABLE IF NOT EXISTS. All five helpers match existing better-sqlite3 style; getExpiredDeviceSessions mirrors getExpiredFiles. Security-critical confirmed: only the SHA-256 poll_token_hash stored, raw device_code server-side only. 208/208 tests, eslint clean on touched files."
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Extract resolveOidcUserPermissions in auth.ts",
+      "status": "complete",
+      "depends_on": [],
+      "why": "Single source of truth so an agent gets exactly the permissions it would receive logging into the UI; avoids a second permission-resolution code path drifting from jwtCallback.",
+      "files": [
+        "src/auth.ts",
+        "tests/unit/auth.test.ts",
+        "tests/unit/oidc.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "A reusable, exported resolveOidcUserPermissions(idTokenClaims) (name may vary) encapsulates the AUTH_OIDC_ADMIN_DOMAIN auto-promote logic plus the upsertOidcUser call currently inline in jwtCallback in src/auth.ts.",
+          "critical": true
+        },
+        {
+          "criterion": "jwtCallback is refactored to call the extracted function; UI-login behavior is unchanged \u2014 the same claims resolve to the same permissions (admin-domain -> ['upload','admin'], otherwise []).",
+          "critical": true
+        },
+        {
+          "criterion": "The function is exported so the mint route (t5) can import it rather than reimplementing permission resolution.",
+          "critical": false
+        },
+        {
+          "criterion": "Existing auth/oidc tests still pass and a test exercises the extracted function for both admin-domain and non-admin-domain claims.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T19:45:00Z",
+          "commit": "7f8d5a0",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Pure refactor verified behavior-preserving. resolveOidcUserPermissions extracted and exported from src/auth.ts; jwtCallback delegates with byte-for-byte-equivalent token writes (admin-domain -> ['upload','admin'], else []). 3 new oidc.test.ts cases + unchanged jwtCallback tests all pass (203/203). src/auth.ts lints clean; the eslint errors in oidc.test.ts are pre-existing baseline lines, build failure is untouched /api/cleanup needing env vars."
+        }
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "POST /api/agent/device/start route",
+      "status": "complete",
+      "depends_on": [
+        "t1",
+        "t2"
+      ],
+      "why": "Entry point of the brokered device grant: exchanges with Google's device endpoint and hands the agent only user-facing fields plus an opaque poll_token, keeping the raw device_code server-side.",
+      "files": [
+        "src/app/api/agent/device/start/route.ts",
+        "tests/unit/agent-device-start.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "POST /api/agent/device/start calls the discovered device_authorization_endpoint with AGENT_OIDC_CLIENT_ID and scope 'openid email profile', stores device_code/interval/expires_at keyed by a hashed opaque poll_token via the t2 helpers, and returns { verification_uri, verification_uri_complete, user_code, interval, expires_in, poll_token }.",
+          "critical": true
+        },
+        {
+          "criterion": "The route exports runtime = 'nodejs', obtains endpoints via the t1 discovery util (no hardcoded Google URLs), and never returns or logs the raw device_code.",
+          "critical": true
+        },
+        {
+          "criterion": "Emits a structured log line [agent] action=device-start ... mirroring the existing [upload]/[auth] log style, with no secrets.",
+          "critical": false
+        },
+        {
+          "criterion": "Unit test mocks the Google device endpoint and the db helpers, asserting the response shape and that device_code is not present in the response.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T21:40:00Z",
+          "commit": "de46d13",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Diff is exactly the two predicted files. Both critical ACs verified: route POSTs to discovered device_authorization_endpoint with AGENT_OIDC_CLIENT_ID + scope 'openid email profile', persists device_code/interval/expires_at under SHA-256 hash of a 256-bit opaque poll_token via t2 createDeviceSession, returns exactly {verification_uri, verification_uri_complete, user_code, interval, expires_in, poll_token}; runtime='nodejs', endpoints only from t1 getOidcDiscoveryDocument (no hardcoded URLs), raw device_code never returned/logged. Both non-critical ACs met: [agent] action=device-start structured logs with no secrets; 8 mocked tests asserting request shape, hashed-key storage, response shape, device_code absence. Authoritative signal: full vitest 249/249 green, scoped eslint exit 0; global lint/build exit-1 is documented pre-existing baseline."
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "POST /api/agent/device/token route (poll + mint)",
+      "status": "complete",
+      "depends_on": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "why": "The poll/mint core: maps RFC 8628 polling statuses, verifies Google's ID token before trusting it, and mints the scoped short-lived key with UI-equivalent permissions.",
+      "files": [
+        "src/app/api/agent/device/token/route.ts",
+        "tests/unit/agent-device-token.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "POST /api/agent/device/token { poll_token } looks up the stored session (t2) and exchanges its device_code at the discovered token_endpoint with grant_type=urn:ietf:params:oauth:grant-type:device_code.",
+          "critical": true
+        },
+        {
+          "criterion": "RFC 8628 status mapping: authorization_pending -> 202 {status:'pending'}; slow_down -> increase the stored interval and return 202 {status:'slow_down', interval}; expired_token/access_denied -> 400/403 {status:'expired'|'denied'} and drop the session. The app enforces the advertised interval and never polls Google faster than it.",
+          "critical": true
+        },
+        {
+          "criterion": "On Google success the route verifies the ID token (signature against jwks_uri, iss, aud == AGENT_OIDC_CLIENT_ID, exp, and email/hd domain), resolves permissions via the t3 helper, mints the scoped JWT via t1 mintAgentKey, returns { api_key, token_type:'Bearer', expires_at, permissions }, and deletes the device session.",
+          "critical": true
+        },
+        {
+          "criterion": "Emits structured logs [agent] action=device-poll|mint ... (result + username) and never logs api_key, device_code, or tokens.",
+          "critical": false
+        },
+        {
+          "criterion": "Unit tests cover pending, slow_down, denied/expired, and a successful mint (Google token endpoint and jwks mocked).",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T21:40:00Z",
+          "commit": "2b7fc83",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "All three critical ACs verified against the committed diff plus tests that ran. ac1: looks up t2 session and exchanges session.device_code at the discovered token_endpoint with grant_type=urn:ietf:params:oauth:grant-type:device_code. ac2: RFC 8628 status mapping exact (authorization_pending->202 pending, slow_down->bump+clamp stored interval+202, expired_token->400 expired+drop, access_denied->403 denied+drop) and enforces advertised interval locally before forwarding upstream. ac3: verifies Google ID token via jose createRemoteJWKSet+jwtVerify against jwks_uri with issuer, audience==AGENT_OIDC_CLIENT_ID, exp, plus email/hd domain gate BEFORE resolving perms via t3 resolveOidcUserPermissions and minting via t1 mintAgentKey, then deletes the single-use session, returns {api_key, token_type:'Bearer', expires_at, permissions}. Imports shared t1/t3 helpers (no reimplementation); 16 log lines emit only status/interval/error-code/domain/username, never api_key/device_code/tokens. Full vitest 251/251 green, touched files lint clean; global lint exit-1 is documented baseline. Non-blocking note: expires_at recomputed as now+TTL independent of the JWT exp (deliberate, ~1s drift, harmless)."
+        }
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Accept Bearer alongside cookie in upload routes",
+      "status": "complete",
+      "depends_on": [
+        "t1"
+      ],
+      "why": "Lets the minted key actually drive the upload API without changing the bytes path or the cookie/UI login.",
+      "files": [
+        "src/app/api/upload/route.ts",
+        "src/app/api/upload/complete/route.ts",
+        "tests/unit/upload-route.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "In both src/app/api/upload/route.ts and src/app/api/upload/complete/route.ts, when await auth() yields no session, fall back to resolveBearerAuth(request) (t1); on a valid aud:'upload' Bearer, synthesize the same { user: { username, permissions } } shape so the existing 'upload'/'admin' permission check, collision detection, signed-URL generation, and token issuance run unchanged.",
+          "critical": true
+        },
+        {
+          "criterion": "Cookie-session behavior is unchanged; an absent, invalid, expired, or wrong-aud Bearer yields the existing 403 { error:'Forbidden', phase:... } response.",
+          "critical": true
+        },
+        {
+          "criterion": "Unit tests cover: valid Bearer authorizes an upload, wrong-aud/expired Bearer is forbidden, and the cookie path still authorizes.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T21:40:00Z",
+          "commit": "23c4c68",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Both critical ACs met. Both upload routes call resolveUploadActor(await auth(), request); when auth() yields no session they fall back to t1 resolveBearerAuth and synthesize { user: { username, permissions, email:null } } so the existing permission gate, collision detection, signed-URL generation, and token issuance run unchanged. Cookie precedence correct -- a present session is returned untouched and the Bearer path is never consulted, preventing elevation of a logged-in unprivileged cookie user (asserted for both routes). Absent/invalid/expired/wrong-aud Bearer -> null -> existing 403 { error:'Forbidden', phase } (asserted for prepare + complete). vitest 247/247 green; the two routes + upload-auth.ts lint clean. Drift (non-blocking, correct): logic factored into new src/lib/upload-auth.ts not in predicted_files -- centralizes the synthesis path and imports t1 resolveBearerAuth rather than reimplementing. Global lint/build exit-1 is documented baseline."
+        }
+      ]
+    },
+    {
+      "id": "t7",
+      "title": "Proxy Bearer branch + device rate-limit categories",
+      "status": "complete",
+      "depends_on": [
+        "t1"
+      ],
+      "why": "The middleware must let a valid-Bearer upload request through instead of redirecting it to /login, and must rate-limit the agent device endpoints \u2014 especially the polling loop.",
+      "files": [
+        "src/proxy.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "In the requiresUpload gate in src/proxy.ts (~line 146), before redirect-to-/login, add a Bearer branch: when there is no cookie session but resolveBearerAuth(req) (t1) returns permissions including 'upload' or 'admin', allow /api/upload* through. Admin routes remain cookie-only.",
+          "critical": true
+        },
+        {
+          "criterion": "Add device_start and device_token rate-limit categories to the existing in-memory limiter; device_token is capped per IP (the route additionally enforces the per-poll_token polling interval).",
+          "critical": true
+        },
+        {
+          "criterion": "The added middleware code is edge-runtime safe (uses the jose-based verify from t1, no node-only APIs).",
+          "critical": false
+        },
+        {
+          "criterion": "Existing redirect and rate-limit behavior for non-upload, login, download, and account paths is unchanged.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T21:40:00Z",
+          "commit": "ed178e4",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Both critical ACs verified. Bearer branch sits before the /login redirect inside if(!session), scoped to /api/upload* only via bearerAllowedPath (the /upload page and admin routes cannot be reached via Bearer), and imports t1 real resolveBearerAuth rather than reimplementing; allows only when perms include 'upload'|'admin'. device_start (5/min) and device_token (30/min, per-IP keyed category:ip) categories added to the in-memory limiter and mapped in getRateLimitCategory. Edge-safety holds (jose-only verify, no node-only APIs); existing login/download/account/redirect behavior preserved. isRateLimited/getRateLimitCategory exported for testing -- non-behavioral visibility change, default export unchanged. Full vitest 251/251 green, touched files lint clean (1 pre-existing-style unused-var warning in the test mock). Non-blocking nit: proxy.test.ts exercises the pure helpers + resolveBearerAuth directly rather than the auth()-wrapped default export end-to-end."
+        }
+      ]
+    },
+    {
+      "id": "t8",
+      "title": "Terraform + env config + docs for agent OIDC client and key TTL",
+      "status": "complete",
+      "depends_on": [],
+      "why": "Wires the new agent OIDC client and key-TTL settings through the same Cloud Run / secrets plumbing as the existing OIDC config, and documents the manual Google client-registration step.",
+      "files": [
+        "terraform/cloudrun.tf",
+        "terraform/secrets.tf",
+        "terraform/variables.tf",
+        "terraform/terraform.tfvars.example",
+        ".env.example",
+        "AGENTS.md"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "AGENT_OIDC_CLIENT_ID, AGENT_OIDC_CLIENT_SECRET, AGENT_KEY_TTL_SECONDS, and optional AGENT_KEY_SECRET are declared in terraform (variables.tf + secrets.tf for the secret-backed ones) and wired into the Cloud Run service env in cloudrun.tf, mirroring the existing AUTH_OIDC_* pattern (secret values as secret refs, non-secret values as plain env).",
+          "critical": true
+        },
+        {
+          "criterion": ".env.example documents the new vars with recommended defaults (AGENT_KEY_TTL_SECONDS=900) and notes AGENT_KEY_SECRET defaults to AUTH_SECRET.",
+          "critical": false
+        },
+        {
+          "criterion": "A short doc note (in AGENTS.md or a referenced doc) records the manual step: register a second Google OAuth client of type 'TVs and Limited Input devices' and populate AGENT_OIDC_CLIENT_ID/SECRET from it.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T19:45:00Z",
+          "commit": "81c0994",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Config+docs-only. terraform fmt -check (exit 0) + validate (Success) after init -backend=false. All four vars declared in variables.tf (agent_oidc_client_id/secret + agent_key_secret sensitive, agent_key_ttl_seconds number default 900); secrets.tf adds conditional Secret Manager secrets/versions gated on agent_oidc_enabled/agent_key_secret_set; cloudrun.tf wires TTL as plain env and the three secrets as secret_key_ref, mirroring the AUTH_OIDC_* pattern. .env.example documents vars + AUTH_SECRET fallback; AGENTS.md records the manual 'TVs and Limited Input devices' client step. Touched 6 files incl. variables.tf (in predicted set)."
+        }
+      ]
+    },
+    {
+      "id": "r1",
+      "title": "Make device-grant endpoints reachable in proxy (remediate obs1)",
+      "status": "complete",
+      "depends_on": [],
+      "remediates": "obs1",
+      "why": "Without this the entire device-grant feature is dead: an unauthenticated agent (the only intended caller) is 307-redirected to /login before reaching device/start or device/token. obs1 was confirmed feature-blocking by the orchestrator against merged proxy.ts.",
+      "files": [
+        "src/proxy.ts",
+        "tests/unit/proxy.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "src/proxy.ts isPublicRoute() returns true for POST paths /api/agent/device/start and /api/agent/device/token so an unauthenticated agent request reaches the handler instead of being redirected to /login. These endpoints are unauthenticated-by-design and self-protected by the RFC 8628 flow plus the existing device_start/device_token rate-limit categories.",
+          "critical": true
+        },
+        {
+          "criterion": "Existing proxy behavior is otherwise unchanged: /api/upload* still requires cookie session OR a valid upload Bearer, admin routes stay cookie-only, and the rate-limit categories (incl. device_start/device_token) still apply to the now-public device endpoints.",
+          "critical": true
+        },
+        {
+          "criterion": "tests/unit/proxy.test.ts adds cases asserting an unauthenticated request to /api/agent/device/start and /api/agent/device/token is allowed through (NOT a 307 redirect to /login), and that the device rate-limit categories still fire. Existing proxy tests stay green.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T22:25:00Z",
+          "commit": "a106b14",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Remediates obs1. Both critical ACs pass: isPublicRoute() returns true for /api/agent/device/start and /api/agent/device/token as exact === matches (not a loose /api/agent/* prefix -- confirmed by a test asserting /api/agent/device/start/extra and /api/agent/other stay non-public), consulted before the /login redirect. Otherwise-unchanged: /api/upload* still cookie-or-Bearer, admin cookie-only, and the rate-limit check provably runs before the isPublicRoute branch so device_start (5/min)/device_token (30/min) caps still apply (asserted by cap-exhaustion tests). isPublicRoute exported for test visibility -- non-behavioral, only internal caller is the gate. Full vitest 282/282 green in-worktree; touched files lint clean. Non-blocking: tests assert the decision helpers directly rather than the auth()-wrapped default export (Node-env limit, same altitude as merged t7 tests). Global lint/build exit-1 is documented baseline."
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "title": "Assert email_verified at the agent mint trust boundary (remediate sec1)",
+      "status": "complete",
+      "depends_on": [],
+      "remediates": "sec1",
+      "why": "Defense-in-depth at the new agent trust boundary: the mint route keys its admin-domain decision off the ID token email/hd domain without asserting the email is verified. Make the verified-email requirement explicit at the agent route independent of the upstream IdP's claim population.",
+      "files": [
+        "src/app/api/agent/device/token/route.ts",
+        "tests/unit/agent-device-token.test.ts"
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion": "In src/app/api/agent/device/token/route.ts, after jwtVerify and before resolving permissions/minting, reject when the verified ID token's email_verified !== true: delete the device session and return 403 (mirror the existing no_email/domain-reject branch). Add email_verified?: boolean to the IdTokenClaims interface.",
+          "critical": true
+        },
+        {
+          "criterion": "The existing success path (email_verified true + domain match) still mints the scoped key; the change adds a rejection branch only and does not alter the happy-path response shape { api_key, token_type:'Bearer', expires_at, permissions }.",
+          "critical": true
+        },
+        {
+          "criterion": "tests/unit/agent-device-token.test.ts adds a case asserting a validly-signed ID token with email_verified false (or absent) is rejected with 403 and the session deleted, and the existing mint/pending/slow_down/denied/expired cases stay green.",
+          "critical": false
+        }
+      ],
+      "verdicts": [
+        {
+          "at": "2026-06-11T22:25:00Z",
+          "commit": "ccb6506",
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "Remediates sec1. Both critical ACs pass: the email_verified gate sits after jwtVerify and before the domain gate, resolveOidcUserPermissions, and mintAgentKey, using claims.email_verified !== true so it rejects both false AND absent claims; it deletes the device session, clears lastPolledAt, and returns 403 {error:'email_unverified'} mirroring the no_email branch. email_verified?: boolean added to IdTokenClaims. Happy-path response shape unchanged -- only a rejection branch + one interface field added. Two new tests assert false and absent -> 403 + session deletion with no permission resolution or mint; existing mint/domain-reject mocks updated to email_verified:true so all prior cases stay green. vitest 277/277 green in-worktree, both touched files lint exit 0. Global lint/build exit-1 is documented baseline."
+        }
+      ]
+    }
+  ],
+  "parallel_plan": {
+    "computed_at": "2026-06-11T16:30:00Z",
+    "base_branch": "main",
+    "cycle_base_sha": "a5dd54ae0f479c22ba23dc716b88e7636ee4c7c5",
+    "post_merge_build": [],
+    "waves": [
+      {
+        "wave": 1,
+        "tasks": [
+          "t1",
+          "t2",
+          "t3",
+          "t8"
+        ]
+      },
+      {
+        "wave": 2,
+        "tasks": [
+          "t4",
+          "t5",
+          "t6",
+          "t7"
+        ]
+      },
+      {
+        "wave": 3,
+        "tasks": [
+          "r1",
+          "r2"
+        ],
+        "kind": "remediation"
+      }
+    ],
+    "predicted_files": {
+      "t1": [
+        "src/lib/agent-key.ts",
+        "src/lib/oidc-discovery.ts",
+        "package.json",
+        "package-lock.json",
+        "tests/unit/agent-key.test.ts",
+        "tests/unit/oidc-discovery.test.ts"
+      ],
+      "t2": [
+        "src/lib/db.ts",
+        "tests/unit/db.test.ts"
+      ],
+      "t3": [
+        "src/auth.ts",
+        "tests/unit/auth.test.ts",
+        "tests/unit/oidc.test.ts"
+      ],
+      "t4": [
+        "src/app/api/agent/device/start/route.ts",
+        "tests/unit/agent-device-start.test.ts"
+      ],
+      "t5": [
+        "src/app/api/agent/device/token/route.ts",
+        "tests/unit/agent-device-token.test.ts"
+      ],
+      "t6": [
+        "src/app/api/upload/route.ts",
+        "src/app/api/upload/complete/route.ts",
+        "tests/unit/upload-route.test.ts"
+      ],
+      "t7": [
+        "src/proxy.ts"
+      ],
+      "t8": [
+        "terraform/cloudrun.tf",
+        "terraform/secrets.tf",
+        "terraform/variables.tf",
+        "terraform/terraform.tfvars.example",
+        ".env.example",
+        "AGENTS.md"
+      ],
+      "r1": [
+        "src/proxy.ts",
+        "tests/unit/proxy.test.ts"
+      ],
+      "r2": [
+        "src/app/api/agent/device/token/route.ts",
+        "tests/unit/agent-device-token.test.ts"
+      ]
+    },
+    "log": "Two waves of 4 (cap reached). Wave 1 holds the four dependency-free tasks: t1 (jose mint/verify + discovery), t2 (db migration v4), t3 (auth.ts perm-extract refactor), t8 (terraform/env/docs) \u2014 all touch disjoint files (src/lib new files + package.json/lock; src/lib/db.ts; src/auth.ts; terraform+.env+AGENTS), no lexical/symbolic/test conflicts. package.json/lock is shared infra but only t1 touches it. Wave 2 holds the four consumers: t4 (start route, needs t1+t2), t5 (token route, needs t1+t2+t3), t6 (upload routes, needs t1), t7 (proxy, needs t1) \u2014 each writes a disjoint file set (two new route files, the two upload route files, proxy.ts), so they parallelize cleanly. t6 and t7 both import t1's resolveBearerAuth but neither edits t1's files, so no write conflict. No post_merge_build needed (no workspace dist artifacts)."
+  },
+  "security_audit": "auto",
+  "security_findings": [
+    {
+      "id": "sec1",
+      "severity": "medium",
+      "category": "auth",
+      "confidence": "low",
+      "status": "resolved",
+      "discovered_at": "2026-06-11T21:55:00Z",
+      "resolved_at": "2026-06-11T22:25:00Z",
+      "wave": 2,
+      "status_note": "remediated by task r2 (wave 3), merged ccb6506 -> main 8b21dd9; evaluator PASS",
+      "location": "src/app/api/agent/device/token/route.ts:248-263",
+      "description": "The agent mint route makes its trust decision off the Google ID token's email/hd claims but never asserts email_verified === true. The admin-domain gate (and, when no admin domain is configured, the non-empty-email gate) keys entirely on the email domain. A validly-signed ID token carrying an unverified email could pass the domain gate and mint an aud:'upload' key. Largely theoretical with Google as IdP + a Workspace hd-gated domain, so this is defense-in-depth hardening at the new agent trust boundary rather than a clear exploit. The same email_verified gap is pre-existing in the UI login path (resolveOidcUserPermissions) but that instance is out of audit scope.",
+      "remediation": "After jwtVerify in src/app/api/agent/device/token/route.ts, reject when claims.email_verified !== true (add email_verified?: boolean to IdTokenClaims), deleting the session and returning 403 — mirror the existing no_email branch."
+    },
+    {
+      "id": "obs1",
+      "severity": "high",
+      "category": "functional-correctness",
+      "confidence": "high",
+      "status": "resolved",
+      "discovered_at": "2026-06-11T21:55:00Z",
+      "resolved_at": "2026-06-11T22:25:00Z",
+      "wave": 2,
+      "status_note": "remediated by task r1 (wave 3), merged a106b14 -> main a329e06; evaluator PASS confirms unauthenticated agent reaches device endpoints",
+      "location": "src/proxy.ts:71-94,137-161",
+      "description": "NOT a security finding (surfaced by the auditor as an out-of-band observation, then confirmed by the orchestrator against merged proxy.ts): the two new device-grant endpoints POST /api/agent/device/start and POST /api/agent/device/token are not in isPublicRoute(), are not /api/upload* (so the Bearer branch does not apply), and the matcher runs the proxy on them. An unauthenticated agent request — the only kind the device grant is designed for — therefore falls through to the 307 redirect-to-/login at proxy.ts:156-160 before the handler runs, making the entire device-grant flow unreachable. The plan never had a task to make these endpoints reachable (t7's ACs covered only the /api/upload* Bearer branch + rate-limit categories), so this is a plan gap, not a regression. Proxy tests only exercise the pure helpers (getRateLimitCategory/isRateLimited/resolveBearerAuth), not the end-to-end gate for these paths, so it went uncaught.",
+      "remediation": "Add /api/agent/device/start and /api/agent/device/token to isPublicRoute() in src/proxy.ts (they are unauthenticated-by-design and self-protected by RFC 8628 + the device_start/device_token rate-limit categories), and add a proxy test asserting an unauthenticated request to each device endpoint is allowed through (NOT redirected to /login)."
+    }
+  ],
+  "log": [
+    "Plan created from approved design .claude/plans/agent-upload-key-minting.md. Dev mode. User chose app-code + terraform scope and verification 'npm run lint && npm test && npm run build'. 8 tasks, 2 waves of 4. Repo grounded via Explore: next-auth v5 has no direct jose dep (t1 adds it), discovery is internal to Auth.js (t1 adds discovery util), db.ts migration system at user_version=3 (t2 -> v4), rate limiting inline in proxy.ts, Vitest tests in tests/unit/. Not executed yet \u2014 run /harness next to dispatch wave 1.",
+    "2026-06-11T16:45:00Z: Signing detected (commit.gpgsign=true, gitsign); user chose disabled. cycle_base_sha anchored at a5dd54a. Dispatching wave 1 (t1, t2, t3, t8) as parallel implementers in isolated worktrees.",
+    "2026-06-11T17:10:00Z: t3 extracted exported resolveOidcUserPermissions(claims) from jwtCallback in src/auth.ts (admin-domain auto-promote + upsertOidcUser, lazy db import preserved) so the t5 mint route shares one permission-resolution path; jwtCallback now delegates with byte-for-byte-equivalent token writes; added 3 oidc.test.ts cases (admin-domain, non-admin-domain, name-fallback). Tests 203/203 pass and src/auth.ts lints clean. NOTE: npm run lint fails identically on pristine main (43 pre-existing no-explicit-any errors in unrelated admin routes/scripts/test files) and npm run build needs GCS_BUCKET/AUTH_SECRET env (also pre-existing on main) \u2014 both baseline conditions, not introduced by t3.",
+    "2026-06-11T19:30:00Z: t2 finished \u2014 verified the pre-existing uncommitted diff satisfies all ACs (migration v4 creating agent_device_sessions(poll_token_hash PK, device_code, interval, expires_at, created_at), idempotent via IF NOT EXISTS and also in the base SCHEMA like prior versioned tables; helpers createDeviceSession/getDeviceSessionByPollTokenHash/updateDeviceSessionInterval/deleteDeviceSession + getExpiredDeviceSessions mirroring getExpiredFiles; only poll_token_hash stored, raw device_code server-side only; 8 new db.test.ts cases for migration shape + create/get/update-interval/delete + expiry selector). npm test 208/208 green; eslint clean on src/lib/db.ts and tests/unit/db.test.ts (zero new errors); full npm run lint/build baseline failures are pre-existing and unrelated. Committed on harness/feat-agent-upload-key-minting/task-t2.",
+    "2026-06-11T19:00:00Z: t1 implemented \u2014 added jose@^6.2.3 as a direct dep; src/lib/agent-key.ts (mintAgentKey HS256 with sub/username/permissions/aud=upload/iss=brushpass/iat/exp/jti, TTL clamped 60..900s, signed with AGENT_KEY_SECRET??AUTH_SECRET, edge-safe crypto.getRandomValues; verifyAgentKey returns null on any failure incl. missing-secret so the edge proxy denies rather than 500s; resolveBearerAuth is the single Bearer-resolution path) and src/lib/oidc-discovery.ts (caches AUTH_OIDC_ISSUER/.well-known/openid-configuration, no hardcoded Google URLs); 30 new unit tests, suite 230/230. /code-review: applied 1 (verify/resolve no longer throws on missing secret), deferred 0, rejected 0. Same pre-existing baseline as t3 (43 lint errors in untouched files; build needs GCS_BUCKET/AUTH_SECRET) \u2014 t1 adds zero new lint problems and build is green with those env vars set.",
+    "2026-06-11T19:12:43Z: t8 finished (prior session's uncommitted work verified + committed) \u2014 declared agent_oidc_client_id/secret (sensitive), agent_key_ttl_seconds (number, default 900) and optional agent_key_secret in terraform/variables.tf; added agent_oidc_enabled/agent_key_secret_set locals + conditional Secret Manager secrets/versions in secrets.tf and the matching plain (TTL) + secret-ref (3 secrets) Cloud Run env entries in cloudrun.tf, all gated and mirroring the existing AUTH_OIDC_* count/dynamic pattern; documented the new vars (TTL=900 default, AGENT_KEY_SECRET->AUTH_SECRET fallback) in .env.example + terraform.tfvars.example and the manual 'TVs and Limited Input devices' Google OAuth client registration step in AGENTS.md. terraform fmt clean, terraform validate Success; tests 200/200; lint exit 1 and build exit 1 are the confirmed pre-existing baseline (43 no-explicit-any in unrelated files; build needs GCS_BUCKET/AUTH_SECRET and is green with them set) \u2014 this task touches no app code.",
+    "2026-06-11T19:45:00Z: NOTE \u2014 t2 and t8 implementer subagents completed work + clean /code-review but exited before committing; orchestrator re-dispatched fresh implementers into the same worktrees to verify-and-commit (no rework). All 4 wave-1 tasks then evaluated by parallel harness-evaluator subagents: t1/t2/t3/t8 all PASS (no critical-AC gaps, no placeholders). Drift: none meaningful (t8 touched variables.tf, which is in its predicted set). Merged all four branches --no-ff into main in id order (commits 2e9c646 t1, e5c7334 t2, 91ee66e t3, d571be6 t8) with -c commit.gpgsign=false; worktrees removed and branches deleted. post_merge_build empty (skipped). Integrated sanity check on merged main: npm install added jose (84 pkgs), full vitest suite 241/241 green. Wave 1 complete; wave 2 (t4, t5, t6, t7) pending. Per /harness next, exiting after one wave.",
+    "2026-06-11T20:30:00Z: Wave 2 pre-flight \u2014 main clean at d571be6; signing already disabled (plan.signing_disabled=true). NOTE: local main diverged from origin/main at cycle_base a5dd54a \u2014 local is 8 ahead (unpushed wave-1 harness commits), origin is 3 ahead (unrelated digest bumps #18/#20 + CI tweak #19, none touching wave-2 files); continuing on local main as base_branch, user to reconcile origin at push time. Staleness check: all wave-1 outputs present on main (agent-key mint/verify/resolveBearerAuth, oidc-discovery, db device-session helpers, resolveOidcUserPermissions); wave-2 targets present (upload routes, proxy.ts), agent route dir absent as expected \u2014 wave plan not stale. Conflict recheck: t4/t5/t6/t7 write disjoint file sets, no lexical/symbolic/test conflicts. Dispatched task t4 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-t4.",
+    "2026-06-11T20:30:00Z: Dispatched task t5 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-t5.",
+    "2026-06-11T20:30:00Z: Dispatched task t6 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-t6.",
+    "2026-06-11T20:30:00Z: Dispatched task t7 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-t7.",
+    "2026-06-11T21:05:00Z: t4 implemented \u2014 POST /api/agent/device/start (runtime='nodejs') brokers the RFC 8628 device-authorization exchange via the t1 getOidcDiscoveryDocument() util (no hardcoded Google URLs) with AGENT_OIDC_CLIENT_ID + scope 'openid email profile', validates the upstream response, persists device_code/interval/expires_at under the SHA-256 hash of an opaque 256-bit poll_token via t2 createDeviceSession (raw device_code never returned/logged; raw poll_token only handed to the caller), and returns { verification_uri, verification_uri_complete, user_code, interval, expires_in, poll_token }; defaults interval to 5s and accepts the verification_url alias; emits [agent] action=device-start log lines with no secrets; 8 new unit tests assert request shape, hashed-key storage, response shape (asserting device_code absent), 503 on missing client id, and 502 on upstream/malformed responses. 249/249 vitest green; eslint exit 0 and tsc --noEmit 0 errors on the two touched files. Note: t5 must hash the incoming poll_token with the same SHA-256(hex) transform to look up the session \u2014 kept inline in both routes rather than coupling to t1/t2 files.",
+    "2026-06-11T21:10:00Z: t6 implemented \u2014 both upload routes (prepare + complete) now authorize via cookie session OR a minted agent Bearer key. Added shared src/lib/upload-auth.ts exporting resolveUploadActor(session, request): returns a present cookie session UNCHANGED (preserving byte-for-byte cookie behavior incl. the username/email log fields), else falls back to t1's resolveBearerAuth and synthesizes { user: { username, permissions, email: null } } so the existing upload/admin gate, collision detection, signed-URL generation, and token issuance run unchanged; absent/invalid/expired/wrong-aud Bearer -> null -> existing 403 { error:'Forbidden', phase }. Cookie precedence: Bearer is consulted only when auth() returns no session (no silent elevation of a logged-in unprivileged cookie user). Bytes path untouched. 6 new upload-route.test.ts cases (valid Bearer authorizes prepare+complete with agent attributed as uploaded_by, wrong-aud/expired -> 403 + no insert, cookie path still authorizes + cookie precedence skips Bearer). 247/247 tests; zero NEW lint errors on touched files (test file holds at the pre-existing 13 no-explicit-any baseline; routes 0 errors; the route.ts resolveExpiry unused-var warning is pre-existing). /code-review high effort: 0 findings. Baseline lint/build exit-1 conditions unchanged and unrelated. Drift: added src/lib/upload-auth.ts (not in predicted_files) to keep one synthesis path shared by both routes.",
+    "2026-06-11T21:10:00Z: t5 implemented — POST /api/agent/device/token (runtime='nodejs') hashes poll_token with the same crypto.createHash('sha256').digest('hex') transform as t4 to look up the t2 session, exchanges device_code at the discovered token_endpoint (grant_type=urn:ietf:params:oauth:grant-type:device_code), and maps RFC 8628 statuses (authorization_pending->202 {pending}; slow_down->bump+clamp stored interval+202 {slow_down,interval}; expired_token->400 {expired}+drop session; access_denied->403 {denied}+drop session); on success VERIFIES the ID token against the discovered jwks_uri (jose createRemoteJWKSet+jwtVerify, iss + aud==AGENT_OIDC_CLIENT_ID + exp) and the email/hd domain BEFORE trusting it, resolves permissions via t3 resolveOidcUserPermissions, mints via t1 mintAgentKey, deletes the single-use session, returns {api_key,token_type:'Bearer',expires_at,permissions}; never logs api_key/device_code/tokens. Also enforces the advertised interval locally (slow_down without forwarding to Google when polled too fast). 10 new unit tests cover pending/slow_down/denied/expired + successful mint + id-token-invalid + domain-reject (Google token endpoint via global.fetch + jose mocked). 251/251 vitest green; eslint exit 0 and tsc --noEmit 0 errors on the two touched files. /code-review high: applied 3 (bounded the in-memory lastPolledAt map to prevent an unbounded leak from abandoned polls, capped backoff interval at 60s, replaced fragile base64url JWT-decode of exp with the shared resolveAgentKeyTtlSeconds), deferred 0, rejected 0. Committed 2b7fc83 on harness/feat-agent-upload-key-minting/task-t5.",
+    "2026-06-11T21:15:00Z: t7 verified-and-committed — the implementer subagent wrote the work + ran /code-review clean but exited before committing (same pattern as wave-1 t2/t8); orchestrator dispatched a fresh implementer into the same worktree to verify-and-commit (no rework). src/proxy.ts gains a Bearer branch in the requiresUpload gate immediately before the /login redirect, scoped to /api/upload* only via bearerAllowedPath (the /upload page + admin routes stay cookie-only), using t1 resolveBearerAuth and allowing only perms including 'upload'|'admin'; adds device_start (5/min) and device_token (30/min, per-IP) rate-limit categories to the existing limiter; isRateLimited/getRateLimitCategory exported for testing (non-behavioral, default export unchanged); edge-safe jose-only verify. tests/unit/proxy.test.ts adds 9 cases; scoped eslint 0 errors (1 pre-existing-style unused-var warning in the test mock), vitest 251/251 green; committed ed178e4.",
+    "2026-06-11T21:40:00Z: Wave 2 evaluated + consolidated. All four tasks evaluated by parallel harness-evaluator subagents over their committed worktree diffs: t4 (de46d13), t5 (2b7fc83), t6 (23c4c68), t7 (ed178e4) all PASS on every dimension (no critical-AC gaps, no placeholders; only non-blocking nits — t5 expires_at ~1s drift, t6/t7 drift+test-altitude notes). Drift check: t4/t5 touched exactly predicted files; t6 added src/lib/upload-auth.ts (correct centralization, confirmed by evaluator); t7 added tests/unit/proxy.test.ts (test for predicted src/proxy.ts). Merged all four branches --no-ff into main in id order with -c commit.gpgsign=false (commits 5f316be t4, b363e8f t5, 93cd578 t6, c188a3d t7); no merge conflicts (conflict analysis held). post_merge_build empty (skipped). Worktrees removed, branches deleted. Integrated sanity check on merged main: npm install, full vitest suite 275/275 green across 26 files. Wave 2 complete — all originally-planned tasks (t1-t8) now done. Proceeding to phase 7.5 security audit before marking the plan complete.",
+    "2026-06-11T21:55:00Z: Phase 7.5 security audit (harness-security-auditor over a5dd54a..c188a3d, 26 files). Auditor confirmed clean: JWT mint/verify (HS256 pinned, iss/aud/exp enforced, no alg-confusion, secret denies-on-unset), Google ID-token verification against jwks before trust, device-code/poll_token confidentiality (only SHA-256 stored, single-use), SSRF surface (all outbound URLs operator-config-derived), proxy Bearer scoping (upload-API-only, admin cookie-only, cookie precedence), rate-limiting on the poll loop, secret handling/logging. ONE finding: sec1 (medium/low-confidence, auth) — mint route trusts ID-token email/hd domain without asserting email_verified===true (defense-in-depth at the new trust boundary; same gap pre-exists in UI path, out of scope). PLUS one out-of-band observation the auditor flagged and the orchestrator CONFIRMED against merged proxy.ts: obs1 (high, functional) — /api/agent/device/start and /api/agent/device/token are not in isPublicRoute() and aren't /api/upload*, so an unauthenticated agent (the only intended caller) is 307-redirected to /login before the handler runs => device-grant flow unreachable; a plan gap, not a regression (t7 only covered the /api/upload* Bearer branch). User chose 'remediate both'. Created remediation wave 3: r1 (proxy isPublicRoute for device endpoints + proxy test, remediates obs1) and r2 (assert email_verified in token route + test, remediates sec1) — disjoint files (proxy.ts vs token/route.ts), parallelize cleanly.",
+    "2026-06-11T22:05:00Z: Wave 3 (remediation) pre-flight clean; main at c188a3d. Dispatched task r1 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-r1.",
+    "2026-06-11T22:05:00Z: Dispatched task r2 to harness-implementer in worktree ../feat-agent-upload-key-minting-task-r2.",
+    "2026-06-11T20:50:00Z: r1 implemented (remediates obs1) — added exact-path matches for /api/agent/device/start and /api/agent/device/token to isPublicRoute() in src/proxy.ts so an unauthenticated agent (the only intended device-grant caller) reaches the handlers instead of the 307 /login redirect; matched exactly (not a loose /api/agent/* prefix) so no other agent route is exposed, and the rate-limit check runs before isPublicRoute so device_start/device_token caps still fire. Exported isPublicRoute (non-behavioral visibility change like isRateLimited/getRateLimitCategory) and added 6 proxy.test.ts cases (device paths public, upload/upload-page/admin still gated, no loose-prefix exposure, existing public routes intact, rate-limit categorization + caps still enforced on the now-public endpoints). Full vitest 282/282 green; scoped eslint 0 errors on both touched files (1 pre-existing unused-var warning in the test mock). /code-review high effort: 0 findings. Global lint/build exit-1 remains the documented pre-existing baseline.",
+    "2026-06-11T22:15:00Z: r2 verified-and-committed (remediates sec1) — the prior implementer wrote the work + ran /code-review clean but exited before committing; fresh implementer verified the uncommitted diff against all ACs (no rework needed). src/app/api/agent/device/token/route.ts adds email_verified?: boolean to IdTokenClaims and, after jwtVerify and the existing no_email check but before the domain gate / resolveOidcUserPermissions / mintAgentKey, rejects when claims.email_verified !== true by deleting the device session (and clearing lastPolledAt) and returning 403 {error:'email_unverified'}, mirroring the no_email/domain-reject branches; happy-path response shape {api_key,token_type:'Bearer',expires_at,permissions} unchanged. tests add email_verified false and absent -> 403 + session deleted + no perms-resolve/mint, and the existing mint/domain-reject mocks now carry email_verified:true so all prior cases stay green. Scoped eslint exit 0 (zero new errors on both touched files); full vitest 277/277 green. Global lint/build exit-1 remains the documented pre-existing baseline.",
+    "2026-06-11T22:25:00Z: Wave 3 (remediation) evaluated + consolidated. Both tasks evaluated by parallel harness-evaluator subagents: r1 (a106b14) and r2 (ccb6506) both PASS on every dimension (r1 one non-blocking test-altitude nit, r2 clean). Drift: none (both touched exactly predicted files). Merged --no-ff into main in id order with -c commit.gpgsign=false (a329e06 r1, 8b21dd9 r2); no conflicts. Integrated suite on merged main 284/284 green across 26 files. Worktrees removed, branches deleted. Findings obs1 + sec1 both marked resolved. Per phase 7.5 the auto-audit does NOT re-run after remediation (user can request /harness security feat-agent-upload-key-minting for a second pass). All tasks (t1-t8, r1, r2) complete and all audit findings resolved -> plan marked COMPLETE. NOTE for the user: local main is now 14 commits ahead of origin/main and origin is 3 unrelated commits ahead (digest bumps #18/#20 + CI tweak #19) since cycle base a5dd54a; nothing pushed -- reconcile with origin before opening a PR. Also: the manual one-time Google Cloud step from AGENTS.md (register the 2nd OAuth client of type 'TVs and Limited Input devices' and populate AGENT_OIDC_CLIENT_ID/SECRET) is still required for the feature to function at runtime."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "slug": "design-agent-upload-key-minting",
+  "title": "Design: short-lived API key minting for agent uploads via brokered device grant",
+  "mode": "design",
+  "created": "2026-06-11T15:00:00Z",
+  "status": "complete",
+  "verification": "",
+  "parallelism": "off",
+  "context": "Brushpass needs a way for autonomous agents to obtain short-lived upload credentials without long-lived keys or seeing the confidential Google OIDC client secret. (c) verification confirmed Google's discovery doc supports the OAuth 2.0 Device Authorization Grant. This task produces a concise, decision-oriented design doc for an app-brokered device-grant flow that mints a scoped, short-lived JWT accepted by the existing upload API. Doc only; no code changes.",
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Write design doc: brokered device-grant -> short-lived scoped upload key",
+      "status": "complete",
+      "why": "Capture the agreed design so implementation can proceed later with a clear, reviewed spec; the user explicitly asked for a doc, not code.",
+      "files": [".claude/plans/agent-upload-key-minting.md"],
+      "rubric_targets": [
+        { "criterion": "End-to-end brokered device-grant flow is described with a numbered sequence and a diagram (agent -> /api/agent/device/start -> Google -> poll /api/agent/device/token -> mint key)", "critical": true },
+        { "criterion": "Short-lived key recommended as a scoped JWT (sub, permissions, aud:upload, exp 5-15m) with the opaque-DB-token alternative compared; aud-scoping rationale (cannot replay against /api/admin) explained", "critical": true },
+        { "criterion": "Code touch points are concrete and grounded in real files (new src/app/api/agent/device/* routes; Bearer-alongside-cookie in upload routes + proxy.ts; reuse of jwtCallback/upsertOidcUser permission lookup)", "critical": true },
+        { "criterion": "Second Google 'TVs and Limited Input devices' OAuth client requirement and new env vars documented, plus PKCE-loopback fallback", "critical": false },
+        { "criterion": "Security section covers short TTL, audience scope, rate limiting, polling interval/slow_down + authorization_pending, device_code expiry, no-refresh-to-agent stance, and revocation story", "critical": true },
+        { "criterion": "Concise and decision-oriented (recommendations stated, not just options enumerated); no code is changed in the repo", "critical": false }
+      ],
+      "verdicts": [
+        {
+          "overall": "PASS",
+          "verification": "SKIP",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "notes": "harness-evaluator independently re-verified the doc's file-grounding (upload routes call auth() + read session.user.permissions; proxy.ts requiresUpload gate ~line 146 cookie-only + IP rate limiting; auth.ts jwtCallback uses upsertOidcUser + AUTH_OIDC_ADMIN_DOMAIN auto-promote; token.ts exports generateToken/hashToken). All 4 critical + 2 non-critical rubric targets met; only .claude/plans/ files touched."
+        }
+      ]
+    }
+  ],
+  "log": [
+    "Plan created. Single design-mode task -> single-task wave, orchestrator runs inline. (c) device-endpoint verification already complete this session.",
+    "Doc written to .claude/plans/agent-upload-key-minting.md. harness-evaluator gate returned overall=PASS (verification SKIP, design mode). Task + plan marked complete. No code changed; no commit (design doc; global CLAUDE.md requires asking before commits)."
+  ]
+}
