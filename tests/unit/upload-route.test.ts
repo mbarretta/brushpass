@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { NextRequest } from 'next/server';
+import type { Session } from 'next-auth';
 
 // ---------------------------------------------------------------------------
 // Module mocks — hoisted by Vitest before any imports
@@ -36,6 +38,13 @@ vi.mock('@/lib/expiry', () => ({
 
 vi.mock('@/auth', () => ({
   auth: vi.fn(),
+}));
+
+// The upload routes fall back to the single Bearer-resolution path in
+// @/lib/agent-key when there is no cookie session. Mock it so we can drive the
+// "valid agent key" and "invalid/expired/wrong-aud key" (-> null) branches.
+vi.mock('@/lib/agent-key', () => ({
+  resolveBearerAuth: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -73,21 +82,30 @@ function makeFileRecord(overrides: Partial<{
   };
 }
 
-function makeRequest(body: unknown): Request {
+function makeRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('http://localhost/api/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
 }
 
-function makeCompleteRequest(body: unknown): Request {
+function makeCompleteRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('http://localhost/api/upload/complete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
 }
+
+const BEARER_HEADER = { Authorization: 'Bearer agent.key.token' };
+
+/** Casts a WHATWG Request to the NextRequest the route handlers expect. */
+const asRoute = (req: Request): NextRequest => req as unknown as NextRequest;
+
+/** Builds a typed cookie-session stub for the auth() mock. */
+const sessionWith = (user: Partial<Session['user']>): Session =>
+  ({ user, expires: '' } as unknown as Session);
 
 const validPrepareBody = {
   sha256: VALID_SHA256,
@@ -116,6 +134,8 @@ describe('POST /api/upload — prepare phase', () => {
     vi.mocked((await import('@/auth')).auth).mockResolvedValue({
       user: { username: 'testuser', permissions: ['upload'] },
     } as any);
+    // Default: no agent Bearer key present (cookie-session tests).
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/gcs')).generateSignedUploadUrl).mockResolvedValue(
       'https://storage.googleapis.com/bucket/signed-url',
     );
@@ -200,6 +220,55 @@ describe('POST /api/upload — prepare phase', () => {
       'application/pdf',
     );
   });
+
+  it('authorizes via a valid agent Bearer key when there is no cookie session', async () => {
+    // No cookie session, but a valid aud:"upload" Bearer resolves an agent.
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue({
+      username: 'agent-bot',
+      permissions: ['upload'],
+    });
+    vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(undefined);
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.type).toBe('upload');
+    expect(json.signedUrl).toBe('https://storage.googleapis.com/bucket/signed-url');
+
+    // The Bearer header was forwarded to the single resolution path.
+    const { resolveBearerAuth } = await import('@/lib/agent-key');
+    expect(vi.mocked(resolveBearerAuth)).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 403 when there is no cookie session and the Bearer key is invalid/expired/wrong-aud', async () => {
+    // resolveBearerAuth returns null for absent/invalid/expired/wrong-aud keys.
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json).toMatchObject({ error: 'Forbidden', phase: 'prepare' });
+  });
+
+  it('does not fall back to a Bearer key when a cookie session is present (cookie precedence)', async () => {
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(
+      sessionWith({ username: 'cookieuser', permissions: ['upload'] }),
+    );
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(200);
+    // Cookie session wins — the Bearer path is never consulted.
+    const { resolveBearerAuth } = await import('@/lib/agent-key');
+    expect(vi.mocked(resolveBearerAuth)).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -214,6 +283,8 @@ describe('POST /api/upload/complete', () => {
     vi.mocked((await import('@/auth')).auth).mockResolvedValue({
       user: { username: 'testuser', permissions: ['upload'] },
     } as any);
+    // Default: no agent Bearer key present (cookie-session tests).
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/db')).insertFile).mockReturnValue(
       makeFileRecord({ sha256: VALID_SHA256, expires_at: null }),
     );
@@ -276,6 +347,61 @@ describe('POST /api/upload/complete', () => {
         token_hash: 'hashed_token',
         uploaded_by: 'testuser',
       }),
+    );
+  });
+
+  it('authorizes via a valid agent Bearer key and attributes the upload to the agent username', async () => {
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue({
+      username: 'agent-bot',
+      permissions: ['upload'],
+    });
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.token).toBe('tok_test');
+
+    // The minted-key identity is recorded as the uploader.
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).toHaveBeenCalledWith(
+      expect.objectContaining({ uploaded_by: 'agent-bot' }),
+    );
+  });
+
+  it('returns 403 when there is no cookie session and the Bearer key is invalid/expired/wrong-aud', async () => {
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json).toMatchObject({ error: 'Forbidden', phase: 'complete' });
+
+    // No file is inserted when authorization fails.
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to a Bearer key when a cookie session is present (cookie precedence)', async () => {
+    vi.mocked((await import('@/auth')).auth).mockResolvedValue(
+      sessionWith({ username: 'cookieuser', permissions: ['upload'] }),
+    );
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody, BEARER_HEADER)));
+
+    expect(res.status).toBe(200);
+    const { resolveBearerAuth } = await import('@/lib/agent-key');
+    expect(vi.mocked(resolveBearerAuth)).not.toHaveBeenCalled();
+    // Uploader is the cookie user, not derived from the Bearer header.
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).toHaveBeenCalledWith(
+      expect.objectContaining({ uploaded_by: 'cookieuser' }),
     );
   });
 });
