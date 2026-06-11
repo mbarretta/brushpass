@@ -23,6 +23,7 @@ done
 
 load_config
 check_gcloud_auth
+load_env_tfvars
 
 echo "==> Project : $PROJECT_ID"
 echo "==> Region  : $REGION"
