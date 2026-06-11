@@ -93,6 +93,7 @@ interface GoogleTokenError {
 
 interface IdTokenClaims {
   email?: string;
+  email_verified?: boolean;
   name?: string;
   hd?: string;
 }
@@ -269,6 +270,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     lastPolledAt.delete(pollTokenHash);
     console.error('[agent] action=mint result=no_email');
     return NextResponse.json({ status: 'error', error: 'no_email' }, { status: 403 });
+  }
+  // Defense-in-depth at the agent trust boundary: the domain gate keys off the
+  // email/hd claim, so require the IdP to have explicitly marked the email
+  // verified before we trust that domain. Independent of how the upstream IdP
+  // populates email_verified; an unverified email never mints an upload key.
+  if (claims.email_verified !== true) {
+    deleteDeviceSession(pollTokenHash);
+    lastPolledAt.delete(pollTokenHash);
+    console.error('[agent] action=mint result=email_unverified');
+    return NextResponse.json({ status: 'error', error: 'email_unverified' }, { status: 403 });
   }
   if (expectedDomain && domain !== expectedDomain && claims.hd !== expectedDomain) {
     deleteDeviceSession(pollTokenHash);
