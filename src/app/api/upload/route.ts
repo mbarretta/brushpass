@@ -8,10 +8,11 @@ import { getFileBySha256 } from '@/lib/db';
 import { parseExpiresAt, parseExpiresIn } from '@/lib/expiry';
 import { isValidSha256 } from '@/lib/sha256';
 import { auth } from '@/auth';
+import { resolveUploadActor } from '@/lib/upload-auth';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Verify session has upload or admin permission
-  const session = await auth();
+  // Authorize via cookie session, falling back to a minted agent Bearer key.
+  const session = await resolveUploadActor(await auth(), request);
   const permissions: string[] = session?.user?.permissions ?? [];
   if (!permissions.includes('upload') && !permissions.includes('admin')) {
     console.log('[upload] phase=prepare result=forbidden user=%s', session?.user?.username ?? 'unauthenticated');
