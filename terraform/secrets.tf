@@ -113,6 +113,14 @@ locals {
     var.oidc_client_secret != ""
   )
   oidc_admin_domain_set = local.oidc_enabled && var.oidc_admin_domain != ""
+
+  # Agent device-grant client: both id and secret must be set together.
+  agent_oidc_enabled = (
+    var.agent_oidc_client_id != "" &&
+    var.agent_oidc_client_secret != ""
+  )
+  # Optional dedicated agent key-signing secret; empty falls back to AUTH_SECRET.
+  agent_key_secret_set = var.agent_key_secret != ""
 }
 
 resource "google_secret_manager_secret" "oidc_client_id" {
@@ -149,4 +157,67 @@ resource "google_secret_manager_secret_version" "oidc_client_secret" {
   count       = local.oidc_enabled ? 1 : 0
   secret      = google_secret_manager_secret.oidc_client_secret[0].id
   secret_data = var.oidc_client_secret
+}
+
+# ── Agent device-grant OIDC secrets (conditional) ─────────────────────────────
+# Created only when both agent_oidc_client_id and agent_oidc_client_secret are
+# non-empty. Setting either back to "" and re-applying destroys the secrets and
+# removes the agent OIDC env vars from the Cloud Run service.
+
+resource "google_secret_manager_secret" "agent_oidc_client_id" {
+  count     = local.agent_oidc_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = "fileshare-agent-oidc-client-id"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "agent_oidc_client_id" {
+  count       = local.agent_oidc_enabled ? 1 : 0
+  secret      = google_secret_manager_secret.agent_oidc_client_id[0].id
+  secret_data = var.agent_oidc_client_id
+}
+
+resource "google_secret_manager_secret" "agent_oidc_client_secret" {
+  count     = local.agent_oidc_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = "fileshare-agent-oidc-client-secret"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "agent_oidc_client_secret" {
+  count       = local.agent_oidc_enabled ? 1 : 0
+  secret      = google_secret_manager_secret.agent_oidc_client_secret[0].id
+  secret_data = var.agent_oidc_client_secret
+}
+
+# ── Agent key-signing secret (optional) ───────────────────────────────────────
+# Created only when agent_key_secret is non-empty. When unset, the app signs
+# agent upload keys with AUTH_SECRET, so no env var is wired below.
+
+resource "google_secret_manager_secret" "agent_key_secret" {
+  count     = local.agent_key_secret_set ? 1 : 0
+  project   = var.project_id
+  secret_id = "fileshare-agent-key-secret"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "agent_key_secret" {
+  count       = local.agent_key_secret_set ? 1 : 0
+  secret      = google_secret_manager_secret.agent_key_secret[0].id
+  secret_data = var.agent_key_secret
 }

@@ -40,6 +40,24 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 # on their first OIDC sign-in. Leave empty to require manual permission grants.
 # oidc_admin_domain = ""  # e.g. "example.com"
 
+# ── Optional: agent device-grant + key minting ────────────────────────────────
+# Lets an autonomous agent obtain a short-lived, upload-scoped key via the OAuth
+# Device Authorization Grant. Register a SECOND Google OAuth client of type
+# "TVs and Limited Input devices" (APIs & Services → Credentials → Create
+# credentials → OAuth client ID → Application type: TVs and Limited Input
+# devices) and populate the two values below. Both must be set together to
+# enable the agent device-grant endpoints. See AGENTS.md for the full step.
+
+# agent_oidc_client_id     = ""   # SENSITIVE — do not commit
+# agent_oidc_client_secret = ""   # SENSITIVE — do not commit
+
+# Lifetime (seconds) of a minted agent upload key. Defaults to 900 (15 minutes).
+# agent_key_ttl_seconds = 900
+
+# Optional dedicated signing secret for agent keys. Leave empty to reuse
+# AUTH_SECRET (the app default).
+# agent_key_secret = ""   # SENSITIVE — do not commit
+
 # ── Custom domain (optional) ──────────────────────────────────────────────────
 # When set, this hostname is added to the GCS bucket CORS policy so that
 # browser XHR uploads from the custom domain are allowed.
