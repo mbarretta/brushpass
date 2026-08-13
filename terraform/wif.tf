@@ -24,8 +24,17 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repo_ref" = "assertion.repository + \"@\" + assertion.ref"
   }
 
-  # Only main-branch tokens from this repository may federate through this provider.
-  attribute_condition = "assertion.repository == \"${var.github_repository}\" && assertion.ref == \"refs/heads/main\""
+  # Only main-branch tokens from this repository may federate through this
+  # provider, AND only when the token was minted for the deploy workflow
+  # itself (assertion.job_workflow_ref) — not merely some other main-branch
+  # workflow in this repo, such as claude.yml, which also runs on main and
+  # holds id-token: write. job_workflow_ref names the workflow file that
+  # actually executed and cannot be spoofed by a caller workflow, unlike
+  # workflow_ref. This is CEL string equality against the literal claim value
+  # GitHub issues (owner/repo/.github/workflows/<file>@<ref>), so no regex
+  # escaping is needed here (contrast the regex-anchored claim_pattern in
+  # .github/chainguard/digestabot.sts.yaml).
+  attribute_condition = "assertion.repository == \"${var.github_repository}\" && assertion.ref == \"refs/heads/main\" && assertion.job_workflow_ref == \"${var.github_repository}/.github/workflows/deploy.yml@refs/heads/main\""
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

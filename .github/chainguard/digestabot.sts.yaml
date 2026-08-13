@@ -5,6 +5,15 @@
 issuer: https://token.actions.githubusercontent.com
 subject: repo:mbarretta/brushpass:ref:refs/heads/main
 
+# Pin the federated token to the exact workflow file that runs on main, not
+# just to the repo+ref the subject line above already constrains. This is
+# job_workflow_ref, not workflow_ref: only job_workflow_ref names the code that
+# actually executes, so a caller workflow cannot spoof it. octo-sts
+# claim_pattern values are anchored regexes, so the literal dots in the path
+# and filename are escaped.
+claim_pattern:
+  job_workflow_ref: mbarretta/brushpass/\.github/workflows/update-digests\.yml@refs/heads/main
+
 permissions:
   contents: write       # push the update-digests branch
   pull_requests: write  # open and enable auto-merge on the PR
