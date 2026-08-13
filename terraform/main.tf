@@ -12,16 +12,16 @@ terraform {
     }
   }
 
-  # Phase 1: local state.
-  # Phase 2: after creating the state bucket manually, uncomment the gcs block,
-  # comment out the local block, and run: terraform init -migrate-state
-  #
-  backend "local" {}
-
-  # backend "gcs" {
-  #   bucket = "pubsec-fileshare-tfstate"   # create this bucket manually first
-  #   prefix = "terraform/state"
-  # }
+  # State lives in GCS, not locally: plaintext production secrets (AUTH_SECRET,
+  # CLEANUP_SECRET, the agent OIDC client secret, the bootstrap admin password)
+  # flow through every resource in this state, and a local backend has no
+  # access control, locking, or durability. The bucket is created by hand with
+  # gcloud (see docs/runbooks/tfstate-migration.md) — Terraform never manages
+  # its own backend bucket, since that would be a bootstrap cycle.
+  backend "gcs" {
+    bucket = "pubsec-fileshare-tfstate"
+    prefix = "terraform/state"
+  }
 }
 
 provider "google" {
