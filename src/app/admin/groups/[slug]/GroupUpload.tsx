@@ -98,8 +98,8 @@ export default function GroupUpload({ slug }: GroupUploadProps) {
         fileId = existing.id;
       } else {
         // Step C: PUT to GCS
-        const { signedUrl, gcsKey, contentType: signedContentType } = prepareJson as {
-          signedUrl: string; gcsKey: string; contentType: string;
+        const { signedUrl, contentType: signedContentType } = prepareJson as {
+          signedUrl: string; contentType: string;
         };
         setPhase('uploading');
         setProgress(0);
@@ -116,10 +116,11 @@ export default function GroupUpload({ slug }: GroupUploadProps) {
           xhr.send(file);
         });
 
-        // Step D: Complete
+        // Step D: Complete. The server re-derives the object key from
+        // sha256 + filename itself (see deriveGcsKey) — it does not accept
+        // one from the client.
         const completeBody: Record<string, unknown> = {
           sha256: sha256Hex,
-          gcsKey,
           filename: file.name,
           contentType: file.type || 'application/octet-stream',
           size: file.size,

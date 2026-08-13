@@ -20,7 +20,6 @@ vi.mock('@/lib/admin-auth', () => ({
 
 vi.mock('@/lib/gcs', () => ({
   deleteFromGCS: vi.fn(),
-  streamToGCS: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------

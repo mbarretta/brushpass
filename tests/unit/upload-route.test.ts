@@ -7,7 +7,7 @@
  * mocks are applied before any route handler module is imported.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { NextRequest } from 'next/server';
 import type { Session } from 'next-auth';
 
@@ -17,6 +17,7 @@ import type { Session } from 'next-auth';
 
 vi.mock('@/lib/gcs', () => ({
   generateSignedUploadUrl: vi.fn(),
+  statObject: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -107,6 +108,19 @@ const asRoute = (req: Request): NextRequest => req as unknown as NextRequest;
 const sessionWith = (user: Partial<Session['user']>): Session =>
   ({ user, expires: '' } as unknown as Session);
 
+/**
+ * Typed accessor for the mocked `auth()`. next-auth's real `auth` export is
+ * overloaded (plain call / route-handler wrap / middleware wrap); vi.mocked()
+ * infers a Mock's type from that whole overload set, which makes TypeScript
+ * pick the middleware overload for mockResolvedValue's parameter type. Every
+ * route handler here only ever calls `auth()` with no arguments, so this
+ * single-signature cast reflects how the mock is actually used.
+ */
+async function mockedAuth(): Promise<Mock<() => Promise<Session | null>>> {
+  const { auth } = await import('@/auth');
+  return vi.mocked(auth) as unknown as Mock<() => Promise<Session | null>>;
+}
+
 const validPrepareBody = {
   sha256: VALID_SHA256,
   filename: 'document.pdf',
@@ -116,7 +130,6 @@ const validPrepareBody = {
 
 const validCompleteBody = {
   sha256: VALID_SHA256,
-  gcsKey: `${VALID_SHA256}.pdf`,
   filename: 'document.pdf',
   contentType: 'application/pdf',
   size: 1024,
@@ -131,9 +144,7 @@ describe('POST /api/upload — prepare phase', () => {
     vi.resetAllMocks();
     vi.mocked((await import('@/lib/token')).generateToken).mockReturnValue('tok_test');
     vi.mocked((await import('@/lib/token')).hashToken).mockResolvedValue('hashed_token');
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue({
-      user: { username: 'testuser', permissions: ['upload'] },
-    } as any);
+    (await mockedAuth()).mockResolvedValue(sessionWith({ username: 'testuser', permissions: ['upload'] }));
     // Default: no agent Bearer key present (cookie-session tests).
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/gcs')).generateSignedUploadUrl).mockResolvedValue(
@@ -145,12 +156,10 @@ describe('POST /api/upload — prepare phase', () => {
   });
 
   it('returns 403 when user has no upload/admin permission', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue({
-      user: { permissions: [] },
-    } as any);
+    (await mockedAuth()).mockResolvedValue(sessionWith({ permissions: [] }));
 
     const { POST } = await import('@/app/api/upload/route');
-    const res = await POST(makeRequest(validPrepareBody) as any);
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
 
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -159,7 +168,7 @@ describe('POST /api/upload — prepare phase', () => {
 
   it('returns 400 when sha256 is not 64 hex chars', async () => {
     const { POST } = await import('@/app/api/upload/route');
-    const res = await POST(makeRequest({ ...validPrepareBody, sha256: 'bad' }) as any);
+    const res = await POST(asRoute(makeRequest({ ...validPrepareBody, sha256: 'bad' })));
 
     expect(res.status).toBe(400);
     const json = await res.json();
@@ -168,9 +177,7 @@ describe('POST /api/upload — prepare phase', () => {
 
   it('returns 400 when required fields (filename/contentType/size) are missing', async () => {
     const { POST } = await import('@/app/api/upload/route');
-    const res = await POST(
-      makeRequest({ sha256: VALID_SHA256 }) as any,
-    );
+    const res = await POST(asRoute(makeRequest({ sha256: VALID_SHA256 })));
 
     expect(res.status).toBe(400);
     const json = await res.json();
@@ -181,7 +188,7 @@ describe('POST /api/upload — prepare phase', () => {
     vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(makeFileRecord());
 
     const { POST } = await import('@/app/api/upload/route');
-    const res = await POST(makeRequest(validPrepareBody) as any);
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -204,7 +211,7 @@ describe('POST /api/upload — prepare phase', () => {
     );
 
     const { POST } = await import('@/app/api/upload/route');
-    const res = await POST(makeRequest(validPrepareBody) as any);
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -221,9 +228,26 @@ describe('POST /api/upload — prepare phase', () => {
     );
   });
 
+  it('treats an uppercase sha256 for existing content as a collision (case-insensitive, normalized lookup)', async () => {
+    const upper = VALID_SHA256.toUpperCase();
+    vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(makeFileRecord());
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest({ ...validPrepareBody, sha256: upper })));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.type).toBe('collision');
+
+    // The lookup is normalized to lowercase — an uppercase digest for
+    // existing content must not create a second row and a second token.
+    const { getFileBySha256 } = await import('@/lib/db');
+    expect(vi.mocked(getFileBySha256)).toHaveBeenCalledWith(VALID_SHA256);
+  });
+
   it('authorizes via a valid agent Bearer key when there is no cookie session', async () => {
     // No cookie session, but a valid aud:"upload" Bearer resolves an agent.
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    (await mockedAuth()).mockResolvedValue(null);
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue({
       username: 'agent-bot',
       permissions: ['upload'],
@@ -245,7 +269,7 @@ describe('POST /api/upload — prepare phase', () => {
 
   it('returns 403 when there is no cookie session and the Bearer key is invalid/expired/wrong-aud', async () => {
     // resolveBearerAuth returns null for absent/invalid/expired/wrong-aud keys.
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    (await mockedAuth()).mockResolvedValue(null);
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
 
     const { POST } = await import('@/app/api/upload/route');
@@ -257,7 +281,7 @@ describe('POST /api/upload — prepare phase', () => {
   });
 
   it('does not fall back to a Bearer key when a cookie session is present (cookie precedence)', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(
+    (await mockedAuth()).mockResolvedValue(
       sessionWith({ username: 'cookieuser', permissions: ['upload'] }),
     );
 
@@ -268,6 +292,20 @@ describe('POST /api/upload — prepare phase', () => {
     // Cookie session wins — the Bearer path is never consulted.
     const { resolveBearerAuth } = await import('@/lib/agent-key');
     expect(vi.mocked(resolveBearerAuth)).not.toHaveBeenCalled();
+  });
+
+  it('returns a generic 500 body — never err.message — on an unexpected error', async () => {
+    vi.mocked((await import('@/lib/gcs')).generateSignedUploadUrl).mockRejectedValue(
+      new Error('a secret internal detail that must never reach the client'),
+    );
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal server error');
+    expect(json.error).not.toContain('secret internal detail');
   });
 });
 
@@ -280,23 +318,27 @@ describe('POST /api/upload/complete', () => {
     vi.resetAllMocks();
     vi.mocked((await import('@/lib/token')).generateToken).mockReturnValue('tok_test');
     vi.mocked((await import('@/lib/token')).hashToken).mockResolvedValue('hashed_token');
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue({
-      user: { username: 'testuser', permissions: ['upload'] },
-    } as any);
+    (await mockedAuth()).mockResolvedValue(sessionWith({ username: 'testuser', permissions: ['upload'] }));
     // Default: no agent Bearer key present (cookie-session tests).
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/db')).insertFile).mockReturnValue(
       makeFileRecord({ sha256: VALID_SHA256, expires_at: null }),
     );
+    // The object must exist in GCS before complete will record it. The
+    // returned size (2048) deliberately differs from validCompleteBody's
+    // claimed size (1024) so tests can assert the persisted size comes
+    // from GCS metadata, not from the request body.
+    vi.mocked((await import('@/lib/gcs')).statObject).mockResolvedValue({
+      size: 2048,
+      contentType: 'application/pdf',
+    });
   });
 
   it('returns 403 when user has no upload/admin permission', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue({
-      user: { permissions: [] },
-    } as any);
+    (await mockedAuth()).mockResolvedValue(sessionWith({ permissions: [] }));
 
     const { POST } = await import('@/app/api/upload/complete/route');
-    const res = await POST(makeCompleteRequest(validCompleteBody) as any);
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
 
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -305,29 +347,25 @@ describe('POST /api/upload/complete', () => {
 
   it('returns 400 when sha256 is invalid', async () => {
     const { POST } = await import('@/app/api/upload/complete/route');
-    const res = await POST(
-      makeCompleteRequest({ ...validCompleteBody, sha256: 'notvalid' }) as any,
-    );
+    const res = await POST(asRoute(makeCompleteRequest({ ...validCompleteBody, sha256: 'notvalid' })));
 
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toMatchObject({ error: 'Invalid sha256', phase: 'complete' });
   });
 
-  it('returns 400 when gcsKey/filename/contentType/size is missing', async () => {
+  it('returns 400 when filename/contentType/size is missing', async () => {
     const { POST } = await import('@/app/api/upload/complete/route');
-    const res = await POST(
-      makeCompleteRequest({ sha256: VALID_SHA256 }) as any,
-    );
+    const res = await POST(asRoute(makeCompleteRequest({ sha256: VALID_SHA256 })));
 
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toMatchObject({ error: 'Missing required fields', phase: 'complete' });
   });
 
-  it('returns 200 with url and token, and calls insertFile with correct params', async () => {
+  it('returns 200 with url and token, and calls insertFile with a server-derived key and GCS-sourced size', async () => {
     const { POST } = await import('@/app/api/upload/complete/route');
-    const res = await POST(makeCompleteRequest(validCompleteBody) as any);
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -343,15 +381,79 @@ describe('POST /api/upload/complete', () => {
         filename: `${VALID_SHA256}.pdf`,
         original_name: 'document.pdf',
         content_type: 'application/pdf',
-        size: 1024,
+        size: 2048, // from statObject's GCS metadata, not the request body's claimed 1024
         token_hash: 'hashed_token',
         uploaded_by: 'testuser',
       }),
     );
   });
 
+  it('ignores a caller-supplied gcsKey entirely and derives the object key from sha256 + filename', async () => {
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest({ ...validCompleteBody, gcsKey: 'secrets/prod-key.json' })));
+
+    expect(res.status).toBe(200);
+
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gcs_key: `${VALID_SHA256}.pdf`,
+        filename: `${VALID_SHA256}.pdf`,
+      }),
+    );
+    // The statObject call proves the derived key (not the attacker's) is
+    // what gets checked for existence.
+    const { statObject } = await import('@/lib/gcs');
+    expect(vi.mocked(statObject)).toHaveBeenCalledWith(`${VALID_SHA256}.pdf`);
+  });
+
+  it('returns 400 and does not call insertFile when the uploaded object is missing from GCS', async () => {
+    vi.mocked((await import('@/lib/gcs')).statObject).mockResolvedValue(null);
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Uploaded object not found');
+
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 with a constant body on a UNIQUE-constraint race, never the raw SQLite message', async () => {
+    const dupError = Object.assign(new Error('UNIQUE constraint failed: files.sha256'), {
+      code: 'SQLITE_CONSTRAINT_UNIQUE',
+    });
+    vi.mocked((await import('@/lib/db')).insertFile).mockImplementation(() => {
+      throw dupError;
+    });
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe('File already exists');
+    expect(json.error).not.toContain('UNIQUE constraint');
+  });
+
+  it('returns a generic 500 body — never err.message — on an unexpected error', async () => {
+    vi.mocked((await import('@/lib/gcs')).statObject).mockRejectedValue(
+      new Error('a secret internal detail that must never reach the client'),
+    );
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal server error');
+    expect(json.error).not.toContain('secret internal detail');
+  });
+
   it('authorizes via a valid agent Bearer key and attributes the upload to the agent username', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    (await mockedAuth()).mockResolvedValue(null);
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue({
       username: 'agent-bot',
       permissions: ['upload'],
@@ -372,7 +474,7 @@ describe('POST /api/upload/complete', () => {
   });
 
   it('returns 403 when there is no cookie session and the Bearer key is invalid/expired/wrong-aud', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(null);
+    (await mockedAuth()).mockResolvedValue(null);
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
 
     const { POST } = await import('@/app/api/upload/complete/route');
@@ -388,7 +490,7 @@ describe('POST /api/upload/complete', () => {
   });
 
   it('does not fall back to a Bearer key when a cookie session is present (cookie precedence)', async () => {
-    vi.mocked((await import('@/auth')).auth).mockResolvedValue(
+    (await mockedAuth()).mockResolvedValue(
       sessionWith({ username: 'cookieuser', permissions: ['upload'] }),
     );
 
