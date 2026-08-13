@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # npm dependencies (package.json / package-lock.json at the repo root).
+  # Patch and minor bumps are grouped into a single PR per week so routine
+  # updates don't produce a flood of individual PRs; majors and security
+  # updates are still opened separately so they get individual review.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used in .github/workflows/*.yml. Actions here are pinned
+  # to a commit SHA; without this ecosystem, SHA-pinning means every action
+  # silently freezes on whatever version was pinned at the time — this is
+  # what keeps them moving forward.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
