@@ -28,7 +28,7 @@ data "google_storage_bucket" "fileshare_files_existing" {
 # Re-applies if the service URI changes (i.e. service is replaced).
 
 resource "terraform_data" "file_bucket_cors" {
-  triggers_replace = [google_cloud_run_v2_service.fileshare.uri, var.custom_domain]
+  triggers_replace = [google_cloud_run_v2_service.fileshare.uri, var.custom_domain, var.allow_dev_cors_origin]
 
   provisioner "local-exec" {
     command = <<-EOT
@@ -37,7 +37,10 @@ resource "terraform_data" "file_bucket_cors" {
       if [ -n "${var.custom_domain}" ]; then
         ORIGINS="$ORIGINS,\"https://${var.custom_domain}\""
       fi
-      printf '[{"origin":[%s,"http://localhost:3000"],"method":["PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":3600}]' \
+      if ${var.allow_dev_cors_origin ? "true" : "false"}; then
+        ORIGINS="$ORIGINS,\"http://localhost:3000\""
+      fi
+      printf '[{"origin":[%s],"method":["PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":3600}]' \
         "$ORIGINS" > "$TMP"
       gcloud storage buckets update gs://${var.file_bucket_name} --cors-file="$TMP" --quiet
       rm -f "$TMP"

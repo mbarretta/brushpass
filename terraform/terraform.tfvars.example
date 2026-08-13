@@ -69,6 +69,36 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 #
 # See AGENTS.md for the full setup, including registering the second OAuth client.
 
+# ── AUTH_URL / cleanup audience (self-referential; see variables.tf) ─────────
+# Leave BOTH commented out for the very first apply against a brand-new
+# service — Cloud Run v2 URLs contain a hash that can't be known before the
+# service exists. After the first apply, run `terraform output -raw
+# service_url`, then uncomment and set auth_url to that exact value, and
+# re-apply. From then on, a lifecycle postcondition on the Cloud Run service
+# fails the apply loudly if the live uri and auth_url ever diverge (e.g. the
+# service was replaced and got a new URL hash), instead of silently shipping a
+# stale audience to NextAuth and the cleanup route.
+
+# auth_url = "https://fileshare-abc123-uc.a.run.app"
+
+# Optional: pin the cleanup route's OIDC audience independently of auth_url.
+# Leave unset — the app falls back to auth_url — unless you specifically want
+# the cleanup audience decoupled from AUTH_URL's own lifecycle.
+# cleanup_audience = "https://fileshare-abc123-uc.a.run.app"
+
+# ── Secret Manager IAM migration (two-apply; see the runbook in iam.tf) ──────
+# Leave false until the per-secret secretmanager.secretAccessor bindings have
+# been applied AND a rolled revision has been confirmed to start with them.
+
+# revoke_project_secret_accessor = false
+
+# ── Dev CORS origin (defaults to false) ───────────────────────────────────────
+# Set to true only while testing signed-URL uploads against production GCS
+# from a local `next dev` server. The production file bucket should not
+# permanently trust http://localhost:3000.
+
+# allow_dev_cors_origin = false
+
 # ── Custom domain (optional) ──────────────────────────────────────────────────
 # When set, this hostname is added to the GCS bucket CORS policy so that
 # browser XHR uploads from the custom domain are allowed.
@@ -83,3 +113,6 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 # cloud_run_memory       = "512Mi"
 # cloud_run_cpu          = "1"
 # artifact_registry_repo = "cloud-run-source-deploy"
+
+# cloud_run_max_instance_count MUST stay 1 (SQLite over GCS FUSE is not
+# multi-writer safe; the rate limiter is per-instance) — do not override this.

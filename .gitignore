@@ -64,6 +64,7 @@ terraform/.terraform.lock.hcl
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/terraform.tfstate.*.backup
+*.tfplan
 
 # ── vercel ──
 .vercel

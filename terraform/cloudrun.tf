@@ -10,9 +10,11 @@ resource "google_cloud_run_v2_service" "fileshare" {
 
     scaling {
       # min=1: keep the instance warm; GCS FUSE re-initializes on cold start
-      # max=1: hard requirement — SQLite WAL locking is not safe across concurrent FUSE writers
+      # max=1: hard requirement — SQLite WAL locking is not safe across concurrent FUSE
+      # writers AND the in-memory rate limiter is per-instance. See the validation
+      # block on var.cloud_run_max_instance_count in variables.tf.
       min_instance_count = 1
-      max_instance_count = 1
+      max_instance_count = var.cloud_run_max_instance_count
     }
 
     # GCS FUSE volume — mounts the SQLite DB bucket at /data
@@ -88,13 +90,38 @@ resource "google_cloud_run_v2_service" "fileshare" {
         }
       }
 
+      # AUTH_URL / CLEANUP_AUDIENCE: see the bootstrap sequence documented on
+      # var.auth_url in variables.tf and the postcondition below. Both stay
+      # unset (env vars omitted entirely) until auth_url is set post-bootstrap.
+      dynamic "env" {
+        for_each = var.auth_url != "" ? [var.auth_url] : []
+        content {
+          name  = "AUTH_URL"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.cleanup_audience != "" ? [var.cleanup_audience] : []
+        content {
+          name  = "CLEANUP_AUDIENCE"
+          value = env.value
+        }
+      }
+
       # ── Secret-sourced environment variables ────────────────────────────────
+      # Every secret below pins an explicit secret_manager_secret_version
+      # resource's `version` (a numeric string, e.g. "1") rather than "latest".
+      # With min_instance_count = 1, a warm instance never re-reads "latest" on
+      # its own; pinning the version means a rotation (which creates a new
+      # secret_manager_secret_version resource here) changes this env value and
+      # rolls a new revision atomically in the same apply.
       env {
         name = "AUTH_SECRET"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.auth_secret.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.auth_secret.version
           }
         }
       }
@@ -106,7 +133,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.cleanup_secret.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.cleanup_secret.version
           }
         }
       }
@@ -123,7 +150,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.oidc_client_id[0].secret_id
-              version = "latest"
+              version = google_secret_manager_secret_version.oidc_client_id[0].version
             }
           }
         }
@@ -136,7 +163,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.oidc_client_secret[0].secret_id
-              version = "latest"
+              version = google_secret_manager_secret_version.oidc_client_secret[0].version
             }
           }
         }
@@ -149,7 +176,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.agent_oidc_client_id[0].secret_id
-              version = "latest"
+              version = google_secret_manager_secret_version.agent_oidc_client_id[0].version
             }
           }
         }
@@ -162,7 +189,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.agent_oidc_client_secret[0].secret_id
-              version = "latest"
+              version = google_secret_manager_secret_version.agent_oidc_client_secret[0].version
             }
           }
         }
@@ -177,11 +204,33 @@ resource "google_cloud_run_v2_service" "fileshare" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.agent_key_secret[0].secret_id
-              version = "latest"
+              version = google_secret_manager_secret_version.agent_key_secret[0].version
             }
           }
         }
       }
+    }
+  }
+
+  lifecycle {
+    # CI owns the image (pushed by deploy.sh's docker build + a workflow, tagged
+    # by commit SHA); Terraform owns everything else about the service template.
+    # Without this, the next `terraform apply` after a manual SHA-tagged rollback
+    # (e.g. `gcloud run services update --image=...:sha-xxxx`) would silently
+    # revert the running image back to var.container_image.
+    ignore_changes = [template[0].containers[0].image]
+
+    # AUTH_URL is a genuine self-reference: the Cloud Run v2 URL contains a hash
+    # that cannot be derived from any other variable, so it cannot be
+    # interpolated into this resource — only asserted against after the fact.
+    # Skipped entirely while auth_url is unset (first-apply bootstrap; see
+    # variables.tf). Once set, any apply where the live uri no longer matches
+    # (e.g. the service was replaced and got a new hash) fails loudly instead of
+    # silently shipping a stale AUTH_URL/CLEANUP_AUDIENCE to NextAuth and the
+    # cleanup route's audience check.
+    postcondition {
+      condition     = var.auth_url == "" || self.uri == var.auth_url
+      error_message = "google_cloud_run_v2_service.fileshare.uri (${self.uri}) no longer matches var.auth_url (${var.auth_url}) — the service was likely recreated with a new URL. Update auth_url (and cleanup_audience, if set) in terraform.tfvars to the new uri and re-apply before this service is used; the previous AUTH_URL is now stale."
     }
   }
 
@@ -190,6 +239,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
     google_secret_manager_secret_version.auth_secret,
     google_secret_manager_secret_version.cleanup_secret,
     google_project_iam_member.fileshare_app_secret_accessor,
+    google_secret_manager_secret_iam_member.fileshare_app_secret_accessor,
   ]
 }
 
@@ -244,5 +294,6 @@ resource "terraform_data" "bootstrap" {
     google_secret_manager_secret_version.admin_user,
     google_secret_manager_secret_version.admin_pass,
     google_project_iam_member.fileshare_app_secret_accessor,
+    google_secret_manager_secret_iam_member.fileshare_app_secret_accessor,
   ]
 }
