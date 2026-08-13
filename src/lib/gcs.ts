@@ -11,25 +11,32 @@ const storage = new Storage(
 ); // uses ADC, GOOGLE_APPLICATION_CREDENTIALS, or IAM signBlob via GCS_SERVICE_ACCOUNT_EMAIL
 const bucket = storage.bucket(bucketName);
 
-export async function streamToGCS(
-  source: NodeJS.ReadableStream,
-  gcsKey: string,
-  contentType: string,
-): Promise<void> {
-  const file = bucket.file(gcsKey);
-  const writeStream = file.createWriteStream({
-    metadata: { contentType },
-    // resumable upload (default) is correct for streaming — avoids content-length requirement
-  });
-  return new Promise((resolve, reject) => {
-    source.pipe(writeStream);
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
-  });
-}
-
 export async function deleteFromGCS(gcsKey: string): Promise<void> {
   await bucket.file(gcsKey).delete();
+}
+
+export interface GCSObjectMeta {
+  size: number;
+  contentType: string | null;
+}
+
+/**
+ * Look up an object's metadata without downloading it. Returns null when
+ * the object does not exist (404) — the caller decides what that means —
+ * and rethrows any other error. Used to verify that a client actually PUT
+ * something to the signed upload URL before /api/upload/complete records
+ * it, and to source the persisted size from GCS rather than trusting the
+ * request body.
+ */
+export async function statObject(gcsKey: string): Promise<GCSObjectMeta | null> {
+  try {
+    const [metadata] = await bucket.file(gcsKey).getMetadata();
+    const size = typeof metadata.size === 'string' ? parseInt(metadata.size, 10) : (metadata.size ?? 0);
+    return { size, contentType: metadata.contentType ?? null };
+  } catch (err) {
+    if (err instanceof Error && (err as { code?: number }).code === 404) return null;
+    throw err;
+  }
 }
 
 export function getGCSReadStream(gcsKey: string): Readable {

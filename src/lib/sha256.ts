@@ -1,33 +1,16 @@
-import crypto from 'crypto';
-import { PassThrough, Readable } from 'stream';
-
 export function isValidSha256(value: string): boolean {
   return /^[a-f0-9]{64}$/i.test(value);
 }
 
-export interface SHA256Result {
-  sha256Promise: Promise<string>;
-  sizePromise: Promise<number>;
-  passThrough: PassThrough;
-}
-
-export function computeSHA256AndStream(source: Readable): SHA256Result {
-  const passThrough = new PassThrough();
-  const hash = crypto.createHash('sha256');
-  let size = 0;
-
-  const sha256Promise = new Promise<string>((resolve, reject) => {
-    passThrough.on('data', (chunk: Buffer) => {
-      hash.update(chunk);
-      size += chunk.length;
-    });
-    passThrough.on('end', () => resolve(hash.digest('hex')));
-    passThrough.on('error', reject);
-  });
-
-  const sizePromise = sha256Promise.then(() => size);
-
-  source.pipe(passThrough);
-
-  return { sha256Promise, sizePromise, passThrough };
+/**
+ * Validate and lowercase a candidate sha256 digest. Returns null for an
+ * invalid value. Lowercasing here (not just checking case-insensitively)
+ * matters: an uppercase digest for content that already exists must
+ * resolve to the same row as the original lowercase digest, so the caller
+ * takes the collision branch instead of creating a duplicate row (and a
+ * second token) for identical content.
+ */
+export function normalizeSha256(value: string): string | null {
+  if (!isValidSha256(value)) return null;
+  return value.toLowerCase();
 }

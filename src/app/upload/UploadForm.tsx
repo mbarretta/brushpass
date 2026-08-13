@@ -107,7 +107,7 @@ export default function UploadForm() {
       }
 
       // Step D — PUT directly to GCS signed URL
-      const { signedUrl, gcsKey, contentType: signedContentType } = prepareJson;
+      const { signedUrl, contentType: signedContentType } = prepareJson;
       setPhase('uploading');
       setProgress(0);
       await new Promise<void>((resolve, reject) => {
@@ -125,10 +125,11 @@ export default function UploadForm() {
         xhr.send(file);
       });
 
-      // Step E — Call complete to record DB metadata
+      // Step E — Call complete to record DB metadata. The server re-derives
+      // the object key from sha256 + filename itself (see deriveGcsKey) —
+      // it does not accept one from the client.
       const completeBody: Record<string, unknown> = {
         sha256: sha256Hex,
-        gcsKey,
         filename: file.name,
         contentType: file.type || 'application/octet-stream',
         size: file.size,
