@@ -58,9 +58,11 @@ vendor/
 tmp/
 
 # ── terraform ──
+# .terraform.lock.hcl is intentionally NOT ignored — it pins provider
+# versions and hashes and must be tracked in git (see
+# docs/runbooks/tfstate-migration.md).
 terraform/terraform.tfvars
 terraform/.terraform/
-terraform/.terraform.lock.hcl
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/terraform.tfstate.*.backup
