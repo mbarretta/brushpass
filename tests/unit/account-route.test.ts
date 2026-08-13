@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 
 vi.mock('@/lib/db', () => ({
-  getUserById: vi.fn(),
+  getUserByIdForAuth: vi.fn(),
   updateUser: vi.fn(),
 }));
 
@@ -21,7 +21,7 @@ vi.mock('@/lib/token', () => ({
 }));
 
 import { auth } from '@/auth';
-import { getUserById, updateUser } from '@/lib/db';
+import { getUserByIdForAuth, updateUser } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/token';
 import { PATCH } from '@/app/api/account/route';
 
@@ -72,14 +72,14 @@ describe('PATCH /api/account', () => {
 
   it('returns 404 when user not found in DB', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     const res = await PATCH(makeRequest({ currentPassword: 'old', newPassword: 'newpass1' }) as never);
     expect(res.status).toBe(404);
   });
 
   it('returns 400 for SSO accounts', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser({ auth_provider: 'oidc', password_hash: null }));
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser({ auth_provider: 'oidc', password_hash: null }));
     const res = await PATCH(makeRequest({ currentPassword: 'x', newPassword: 'newpass1' }) as never);
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
@@ -88,7 +88,7 @@ describe('PATCH /api/account', () => {
 
   it('returns 400 when credentials user has no password_hash', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser({ password_hash: null }));
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser({ password_hash: null }));
     const res = await PATCH(makeRequest({ currentPassword: 'old', newPassword: 'newpass1' }) as never);
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
@@ -97,7 +97,7 @@ describe('PATCH /api/account', () => {
 
   it('returns 400 for invalid JSON body', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     const req = new Request('http://localhost/api/account', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -111,21 +111,21 @@ describe('PATCH /api/account', () => {
 
   it('returns 400 when currentPassword is missing', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     const res = await PATCH(makeRequest({ newPassword: 'newpass1' }) as never);
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when newPassword is missing', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     const res = await PATCH(makeRequest({ currentPassword: 'oldpass' }) as never);
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when newPassword is too short', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     const res = await PATCH(makeRequest({ currentPassword: 'oldpass', newPassword: 'short' }) as never);
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
@@ -134,7 +134,7 @@ describe('PATCH /api/account', () => {
 
   it('returns 401 when current password is incorrect', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(false);
     const res = await PATCH(makeRequest({ currentPassword: 'wrongpass', newPassword: 'newpass123' }) as never);
     expect(res.status).toBe(401);
@@ -144,7 +144,7 @@ describe('PATCH /api/account', () => {
 
   it('returns 200 and calls updateUser on success', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
-    (getUserById as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
+    (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
     const res = await PATCH(makeRequest({ currentPassword: 'oldpass', newPassword: 'newpass123' }) as never);
     expect(res.status).toBe(200);

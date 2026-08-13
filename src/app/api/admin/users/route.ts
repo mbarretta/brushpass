@@ -14,11 +14,11 @@ export async function GET(_request: NextRequest): Promise<Response> {
     }
 
     phase = 'db-list';
+    // listUsers() already projects out password_hash — no strip needed.
     const users = listUsers();
-    const safe = users.map(({ password_hash: _ph, ...rest }) => rest);
 
-    console.log('[admin] action=list-users count=%d', safe.length);
-    return Response.json(safe);
+    console.log('[admin] action=list-users count=%d', users.length);
+    return Response.json(users);
   } catch (err) {
     console.error('[admin] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });
@@ -71,10 +71,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       permissions: permissions as Permission[],
     });
 
-    const { password_hash: _ph, ...safe } = user;
-
+    // createUser() already projects out password_hash — no strip needed.
     console.log('[admin] action=create-user username=%s', username);
-    return Response.json(safe, { status: 201 });
+    return Response.json(user, { status: 201 });
   } catch (err) {
     console.error('[admin] phase=%s error=%s', phase, String(err));
     // Unique constraint violation

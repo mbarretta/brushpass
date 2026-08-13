@@ -16,20 +16,18 @@ export async function GET(request: NextRequest): Promise<Response> {
     const sha256Param = new URL(request.url).searchParams.get('sha256');
 
     if (sha256Param) {
-      // Single-file lookup by sha256 — used by group upload collision path
+      // Single-file lookup by sha256 — used by group upload collision path.
+      // getFileBySha256() already projects out token_hash — no strip needed.
       const file = getFileBySha256(sha256Param);
       if (!file) return Response.json({ error: 'File not found' }, { status: 404 });
-      const { token_hash: _th, ...safe } = file;
-      return Response.json(safe);
+      return Response.json(file);
     }
 
+    // listFiles() already projects out token_hash — no strip needed.
     const files = listFiles();
 
-    // Strip token_hash from every record before returning
-    const safeFiles = files.map(({ token_hash: _th, ...rest }) => rest);
-
-    console.log('[admin] action=list count=%d', safeFiles.length);
-    return Response.json(safeFiles);
+    console.log('[admin] action=list count=%d', files.length);
+    return Response.json(files);
   } catch (err) {
     console.error('[admin] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });

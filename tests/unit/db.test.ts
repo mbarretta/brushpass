@@ -46,11 +46,42 @@ describe('getDb()', () => {
     expect(row[0].journal_mode).toBe('delete');
   });
 
+  it('enables the foreign_keys pragma, making ON DELETE CASCADE real', async () => {
+    const { getDb } = await import('@/lib/db');
+    const db = getDb();
+    const row = db.pragma('foreign_keys') as { foreign_keys: number }[];
+    expect(row[0].foreign_keys).toBe(1);
+  });
+
   it('returns the same instance on repeated calls (singleton)', async () => {
     const { getDb } = await import('@/lib/db');
     const a = getDb();
     const b = getDb();
     expect(a).toBe(b);
+  });
+});
+
+describe('foreign_keys cascade: deleting a user removes their permission_requests row', () => {
+  it('cascades on deleteUser', async () => {
+    const { createUser, deleteUser, createPermissionRequest, getDb } = await import('@/lib/db');
+    const user = createUser({
+      username: 'cascade-user',
+      password_hash: '$2b$10$fakehash',
+      permissions: ['upload'],
+    });
+    createPermissionRequest(user.id, ['admin']);
+
+    const before = getDb()
+      .prepare<[number], { count: number }>('SELECT COUNT(*) as count FROM permission_requests WHERE user_id = ?')
+      .get(user.id);
+    expect(before?.count).toBe(1);
+
+    deleteUser(user.id);
+
+    const after = getDb()
+      .prepare<[number], { count: number }>('SELECT COUNT(*) as count FROM permission_requests WHERE user_id = ?')
+      .get(user.id);
+    expect(after?.count).toBe(0);
   });
 });
 
@@ -72,16 +103,36 @@ describe('insertFile / getFileBySha256 / getFileById', () => {
     expect(inserted.id).toBeGreaterThan(0);
     expect(inserted.sha256).toBe(data.sha256);
     expect(inserted.filename).toBe(data.filename);
+    expect(inserted).not.toHaveProperty('token_hash');
 
     const found = getFileBySha256(data.sha256);
     expect(found).toBeDefined();
     expect(found!.id).toBe(inserted.id);
     expect(found!.original_name).toBe('hello.txt');
+    expect(found).not.toHaveProperty('token_hash');
   });
 
   it('getFileBySha256 returns undefined for unknown sha256', async () => {
     const { getFileBySha256 } = await import('@/lib/db');
     expect(getFileBySha256('nonexistent')).toBeUndefined();
+  });
+
+  it('getFileBySha256ForAuth includes token_hash', async () => {
+    const { insertFile, getFileBySha256ForAuth } = await import('@/lib/db');
+    const sha256 = 'ff'.padEnd(64, '0');
+    insertFile({
+      filename: `${sha256}.txt`,
+      original_name: 'secret.txt',
+      sha256,
+      size: 1,
+      content_type: 'text/plain',
+      gcs_key: `${sha256}.txt`,
+      token_hash: '$2b$10$authvariant',
+      expires_at: null,
+      uploaded_by: null,
+    });
+    const found = getFileBySha256ForAuth(sha256);
+    expect(found?.token_hash).toBe('$2b$10$authvariant');
   });
 
   it('getFileById returns the correct record', async () => {
@@ -102,6 +153,7 @@ describe('insertFile / getFileBySha256 / getFileById', () => {
     expect(found).toBeDefined();
     expect(found!.uploaded_by).toBe('tester');
     expect(found!.expires_at).toBe(9999999999);
+    expect(found).not.toHaveProperty('token_hash');
   });
 
   it('getFileById returns undefined for unknown id', async () => {

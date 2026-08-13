@@ -4,7 +4,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 // This must be done at module scope, before the lazy import below.
 process.env.DATABASE_PATH = ':memory:';
 
-import { _resetDb, insertFile, getFileById, updateFileTokenHash } from '@/lib/db';
+import { _resetDb, insertFile, getFileById, updateFileTokenHash, getDb } from '@/lib/db';
+
+/** Reads token_hash straight from the row — getFileById() no longer selects it. */
+function readTokenHash(id: number): string | undefined {
+  const row = getDb()
+    .prepare<[number], { token_hash: string }>('SELECT token_hash FROM files WHERE id = ?')
+    .get(id);
+  return row?.token_hash;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,8 +45,7 @@ describe('updateFileTokenHash', () => {
   it('updates token_hash for an existing file', () => {
     const file = insertFile(makeFileData({ token_hash: '$2b$old_hash' }));
     updateFileTokenHash(file.id, '$2b$new_hash');
-    const updated = getFileById(file.id);
-    expect(updated?.token_hash).toBe('$2b$new_hash');
+    expect(readTokenHash(file.id)).toBe('$2b$new_hash');
   });
 
   it('does not throw for a nonexistent id (no-op)', () => {
@@ -51,14 +58,13 @@ describe('updateFileTokenHash', () => {
     const updated = getFileById(file.id);
     expect(updated?.original_name).toBe('unchanged.txt');
     expect(updated?.size).toBe(512);
-    expect(updated?.token_hash).toBe('$2b$updated_hash');
+    expect(readTokenHash(file.id)).toBe('$2b$updated_hash');
   });
 
   it('can update the same file twice', () => {
     const file = insertFile(makeFileData({ token_hash: '$2b$v1' }));
     updateFileTokenHash(file.id, '$2b$v2');
     updateFileTokenHash(file.id, '$2b$v3');
-    const updated = getFileById(file.id);
-    expect(updated?.token_hash).toBe('$2b$v3');
+    expect(readTokenHash(file.id)).toBe('$2b$v3');
   });
 });

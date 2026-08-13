@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
-import { getGroupWithFiles } from '@/lib/db';
+import { getGroupBySlugForAuth, listGroupFiles } from '@/lib/db';
 import { verifyToken } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
@@ -29,8 +29,12 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
       return Response.json({ error: 'Token required', phase: 'token-extract' }, { status: 401 });
     }
 
+    // Verify the group and the token BEFORE loading any file rows — avoids
+    // loading the group's full file list for a caller who has not yet proven
+    // they hold a valid token. getGroupBySlugForAuth is the one production
+    // caller that needs token_hash off the file_groups row.
     phase = 'db-lookup';
-    const group = getGroupWithFiles(slug);
+    const group = getGroupBySlugForAuth(slug);
     if (!group) {
       return Response.json({ error: 'Group not found', phase: 'db-lookup' }, { status: 404 });
     }
@@ -47,7 +51,8 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     }
 
     phase = 'file-lookup';
-    const file = group.files.find((f) => f.sha256 === sha256);
+    const files = listGroupFiles(group.id);
+    const file = files.find((f) => f.sha256 === sha256);
     if (!file) {
       return Response.json({ error: 'File not in group', phase: 'file-lookup' }, { status: 404 });
     }

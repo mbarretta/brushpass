@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
-import { getFileBySha256, logDownload } from '@/lib/db';
+import { getFileBySha256ForAuth, logDownload } from '@/lib/db';
 import { verifyToken } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
@@ -27,9 +27,10 @@ export async function GET(
       return Response.json({ error: 'Not found', phase: 'validation' }, { status: 404 });
     }
 
-    // Look up the file record
+    // Look up the file record. Needs token_hash below — the ForAuth variant
+    // is the one production caller.
     phase = 'db-lookup';
-    const record = getFileBySha256(sha256);
+    const record = getFileBySha256ForAuth(sha256);
     if (!record) {
       return Response.json({ error: 'File not found', phase: 'db-lookup' }, { status: 404 });
     }

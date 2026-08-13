@@ -29,10 +29,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
       return Response.json({ error: 'User not found', phase: 'db-lookup' }, { status: 404 });
     }
 
-    const { password_hash: _ph, ...safe } = user;
-
+    // getUserById() already projects out password_hash — no strip needed.
     console.log('[admin] action=get-user id=%d', numericId);
-    return Response.json(safe);
+    return Response.json(user);
   } catch (err) {
     console.error('[admin] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });

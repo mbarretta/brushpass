@@ -74,19 +74,17 @@ export default async function AdminFileDetailPage({
   const offset = (safePage - 1) * PAGE_SIZE;
   const download_logs = getDownloadLogsPaginated(numericId, PAGE_SIZE, offset);
 
-  // Destructure token_hash out — never render it
-  const { token_hash: _th, ...safeFile } = file;
-
+  // getFileById() already projects out token_hash — no strip needed.
   const fields: [string, string][] = [
-    ['ID', String(safeFile.id)],
-    ['Original name', safeFile.original_name],
-    ['SHA-256', safeFile.sha256],
-    ['Size', formatBytes(safeFile.size)],
-    ['Content type', safeFile.content_type],
-    ['GCS key', safeFile.gcs_key],
-    ['Expires at', formatUnix(safeFile.expires_at)],
-    ['Uploaded at', formatUnix(safeFile.uploaded_at)],
-    ['Uploaded by', safeFile.uploaded_by ?? '—'],
+    ['ID', String(file.id)],
+    ['Original name', file.original_name],
+    ['SHA-256', file.sha256],
+    ['Size', formatBytes(file.size)],
+    ['Content type', file.content_type],
+    ['GCS key', file.gcs_key],
+    ['Expires at', formatUnix(file.expires_at)],
+    ['Uploaded at', formatUnix(file.uploaded_at)],
+    ['Uploaded by', file.uploaded_by ?? '—'],
   ];
 
   return (
@@ -98,7 +96,7 @@ export default async function AdminFileDetailPage({
           </Link>
           <span className="text-zinc-300 dark:text-zinc-700">/</span>
           <span className="text-sm text-zinc-900 dark:text-zinc-100 font-medium">
-            {safeFile.original_name}
+            {file.original_name}
           </span>
         </div>
 
@@ -139,7 +137,7 @@ export default async function AdminFileDetailPage({
         </div>
 
         {/* Mutations (client component) */}
-        <AdminFileActions fileId={safeFile.id} expiresAt={safeFile.expires_at} sha256={safeFile.sha256} />
+        <AdminFileActions fileId={file.id} expiresAt={file.expires_at} sha256={file.sha256} />
 
         {/* Download log table */}
         <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">

@@ -176,10 +176,12 @@ const config: NextAuthConfig = {
         // Import DB helpers inside authorize() — never at module init time.
         // better-sqlite3 is a native Node module incompatible with Edge runtime;
         // keeping the import lazy ensures this file can be loaded on Edge for proxy.
-        const { getUserByUsername } = await import('@/lib/db');
+        // Uses the *ForAuth variant — this is the one production caller that needs
+        // password_hash off the users row.
+        const { getUserByUsernameForAuth } = await import('@/lib/db');
         const { verifyPassword } = await import('@/lib/token');
 
-        const user = getUserByUsername(username);
+        const user = getUserByUsernameForAuth(username);
         if (!user) {
           console.log('[auth] action=login username=%s result=user_not_found', username);
           return null;

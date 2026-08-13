@@ -2,9 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import type { FileRecord, FileGroup } from '@/types';
+import type { SafeFileRecord, SafeFileGroup } from '@/types';
 
-type FileRow = FileRecord & { download_count: number };
+type FileRow = SafeFileRecord & { download_count: number };
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -19,7 +19,7 @@ function formatExpiry(expiresAt: number | null): string {
 
 interface Props {
   files: FileRow[];
-  fileGroups: Record<number, FileGroup[]>;
+  fileGroups: Record<number, SafeFileGroup[]>;
 }
 
 export default function AdminFilesClient({ files, fileGroups }: Props) {

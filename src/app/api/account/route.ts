@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { auth } from '@/auth';
-import { getUserById, updateUser } from '@/lib/db';
+import { getUserByIdForAuth, updateUser } from '@/lib/db';
 import { hashPassword, verifyPassword } from '@/lib/token';
 
 export async function PATCH(request: NextRequest): Promise<Response> {
@@ -16,7 +16,8 @@ export async function PATCH(request: NextRequest): Promise<Response> {
     const userId = parseInt(session.user.id, 10);
 
     phase = 'db-lookup';
-    const user = getUserById(userId);
+    // Needs password_hash below — the ForAuth variant is the one production caller.
+    const user = getUserByIdForAuth(userId);
     if (!user) {
       return Response.json({ error: 'User not found' }, { status: 404 });
     }

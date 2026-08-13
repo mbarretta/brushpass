@@ -58,3 +58,25 @@ export interface FileGroupMember {
 export interface FileGroupWithFiles extends FileGroup {
   files: FileRecord[];
 }
+
+// ── Safe projections ─────────────────────────────────────────────────────────
+// These are the shapes actually returned by db.ts's projected getters — the
+// secret column is never selected, so it's absent rather than stripped. The
+// full interfaces above are unchanged and still back insert/update payloads,
+// the *ForAuth getters, and existing test fixtures.
+
+export type SafeFileRecord = Omit<FileRecord, 'token_hash'>;
+export type SafeFileGroup = Omit<FileGroup, 'token_hash'>;
+export type SafeUser = Omit<User, 'password_hash'>;
+
+export interface SafeFileGroupWithFiles extends SafeFileGroup {
+  files: SafeFileRecord[];
+}
+
+/** Minimal public-safe file shape returned by the anonymous group-access route. */
+export interface PublicGroupFile {
+  sha256: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+}
