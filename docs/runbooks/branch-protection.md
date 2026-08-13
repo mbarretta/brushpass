@@ -40,6 +40,13 @@ lint` is red at HEAD as of this writing (43 pre-existing errors on
 plan's own log). Do not run the `gh api` call below until you have personally
 re-run `npm run lint` against current `main` and it exits 0.
 
+**This applies equally to the `lint` job's second step.** `ci.yml`'s `lint`
+job runs two steps — `npm run lint` and `npm run typecheck` (`next typegen &&
+tsc --noEmit`) — and either one failing marks the whole `lint` check-run red,
+so it locks out merges exactly the same way a `npm run lint` failure would.
+Re-run `npm run typecheck` against current `main`, not just `npm run lint`,
+and confirm it also exits 0 before requiring the `lint` context.
+
 As of this task's own commit, two of those files had no owning task anywhere in
 the remediation plan and were fixed here as a byproduct of getting this task's
 own verification as clean as file-ownership boundaries allow:
@@ -49,8 +56,19 @@ own verification as clean as file-ownership boundaries allow:
   invoked directly via `node scripts/bootstrap-admin.js` with no build step and
   cannot switch to ESM `import` without either renaming the file or flipping
   `package.json` to `"type": "module"`, either of which is out of scope here).
-- `tests/unit/permission-requests-route.test.ts` (14 `no-explicit-any` errors —
-  resolved by this commit by typing the mocks properly instead of casting).
+- `tests/unit/permission-requests-route.test.ts` (14 `no-explicit-any` lint
+  errors — resolved by this commit by typing the mocks properly, e.g. giving
+  `makeSession()` a real `Session` return type with the required `expires`
+  field. That retype briefly broke `npm run typecheck` instead: `@/auth`'s
+  `auth` export is typed as an intersection of five call signatures, and
+  TypeScript resolves `vi.mocked(auth)` against the *last* one (a
+  `NextMiddleware` wrapper) rather than the plain session-getter signature
+  this test actually exercises, so `vi.mocked(auth).mockResolvedValue(session)`
+  no longer type-checked once the `as any` casts were removed. Fixed with one
+  narrow, named cast to the specific overload being mocked
+  (`auth as () => Promise<Session | null>`, documented inline) rather than
+  reintroducing `any` — `npm run typecheck` is clean on this file as a
+  result).
 
 The remaining lint debt at the time this task landed lived in files each owned
 by a **different**, separately in-flight task in this same remediation plan —
@@ -66,10 +84,11 @@ work already committed on another branch:
 
 Each of those tasks' own plan notes already commits to clearing its file's
 errors as part of its own change. **Before running the `gh api` call below,
-re-run `npm run lint` on current `main` HEAD and confirm it exits 0** — by the
-time every task in this plan has merged it should, but verify rather than
-assume, since a still-open task or a regression would otherwise turn `lint`
-into a silent, permanent lockout the moment it's required.
+re-run both `npm run lint` AND `npm run typecheck` on current `main` HEAD and
+confirm each exits 0** — by the time every task in this plan has merged they
+should, but verify rather than assume, since a still-open task or a regression
+in either command would otherwise turn the single `lint` context into a
+silent, permanent lockout the moment it's required.
 
 ## Correction to the source plan: there is no single "CodeQL" context today
 
