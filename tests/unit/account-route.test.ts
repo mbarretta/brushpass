@@ -18,6 +18,14 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/token', () => ({
   verifyPassword: vi.fn(),
   hashPassword: vi.fn(),
+  // Faithful re-implementation (not vi.importActual, which would also pull
+  // in bcryptjs) — matches the real MIN_PASSWORD_LENGTH of 12.
+  validatePassword: (password: string) =>
+    password.length < 12
+      ? { ok: false, error: 'Password must be at least 12 characters' }
+      : password.length > 128
+        ? { ok: false, error: 'Password must be at most 128 characters' }
+        : { ok: true },
 }));
 
 import { auth } from '@/auth';
@@ -129,14 +137,14 @@ describe('PATCH /api/account', () => {
     const res = await PATCH(makeRequest({ currentPassword: 'oldpass', newPassword: 'short' }) as never);
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
-    expect(body.error).toMatch(/8 characters/);
+    expect(body.error).toMatch(/12 characters/);
   });
 
   it('returns 401 when current password is incorrect', async () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
     (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    const res = await PATCH(makeRequest({ currentPassword: 'wrongpass', newPassword: 'newpass123' }) as never);
+    const res = await PATCH(makeRequest({ currentPassword: 'wrongpass', newPassword: 'newpassword123' }) as never);
     expect(res.status).toBe(401);
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/incorrect/);
@@ -146,7 +154,7 @@ describe('PATCH /api/account', () => {
     (auth as ReturnType<typeof vi.fn>).mockResolvedValue(makeSession());
     (getUserByIdForAuth as ReturnType<typeof vi.fn>).mockReturnValue(makeUser());
     (verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    const res = await PATCH(makeRequest({ currentPassword: 'oldpass', newPassword: 'newpass123' }) as never);
+    const res = await PATCH(makeRequest({ currentPassword: 'oldpass', newPassword: 'newpassword123' }) as never);
     expect(res.status).toBe(200);
     const body = await res.json() as { ok: boolean };
     expect(body.ok).toBe(true);

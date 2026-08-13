@@ -127,6 +127,48 @@ describe('approvePermissionRequest()', () => {
     expect(() => approvePermissionRequest(99999, ['upload'])).not.toThrow();
     expect(listPendingPermissionRequests()).toEqual([]);
   });
+
+  it('writes the union of existing and newly granted permissions — approving upload never strips admin', async () => {
+    const {
+      upsertOidcUser,
+      createPermissionRequest,
+      approvePermissionRequest,
+      listPendingPermissionRequests,
+      getUserById,
+    } = await import('@/lib/db');
+
+    // User already holds 'admin' (e.g. granted separately) and now requests 'upload'.
+    const user = upsertOidcUser('grace@example.com', 'Grace', ['admin']);
+    createPermissionRequest(user.id, ['upload']);
+
+    const pending = listPendingPermissionRequests();
+    const requestId = pending[0].id;
+
+    approvePermissionRequest(requestId, ['upload']);
+
+    const updated = getUserById(user.id);
+    expect(updated?.permissions).toHaveLength(2);
+    expect(updated?.permissions).toEqual(expect.arrayContaining(['admin', 'upload']));
+  });
+
+  it('does not duplicate a permission already held by the user', async () => {
+    const {
+      upsertOidcUser,
+      createPermissionRequest,
+      approvePermissionRequest,
+      listPendingPermissionRequests,
+      getUserById,
+    } = await import('@/lib/db');
+
+    const user = upsertOidcUser('heidi@example.com', 'Heidi', ['upload']);
+    createPermissionRequest(user.id, ['upload']);
+
+    const pending = listPendingPermissionRequests();
+    approvePermissionRequest(pending[0].id, ['upload']);
+
+    const updated = getUserById(user.id);
+    expect(updated?.permissions).toEqual(['upload']);
+  });
 });
 
 // ── denyPermissionRequest ─────────────────────────────────────────────────────

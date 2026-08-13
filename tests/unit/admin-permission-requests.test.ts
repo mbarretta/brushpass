@@ -15,6 +15,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('@/lib/admin-auth', () => ({
   getIsAdmin: vi.fn(),
+  // Faithful re-implementation (not vi.importActual) so this stays isolated
+  // from the real module's @/auth import — matches VALID_PERMISSIONS = ['upload', 'admin'].
+  isValidPermissionsArray: (value: unknown) =>
+    Array.isArray(value) && value.every((p) => p === 'upload' || p === 'admin'),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -172,6 +176,83 @@ describe('POST /api/admin/permission-requests/[id]/approve', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/invalid id/i);
+  });
+
+  it('uses the admin-supplied permissions override instead of the requested set', async () => {
+    vi.mocked((await import('@/lib/admin-auth')).getIsAdmin).mockResolvedValue(true);
+
+    // Requester asked for ['upload'] only.
+    const dbRow = { requested_permissions: '["upload"]' };
+    vi.mocked((await import('@/lib/db')).getDb).mockReturnValue(mockDb(dbRow) as never);
+
+    const db = await import('@/lib/db');
+    vi.mocked(db.approvePermissionRequest).mockReturnValue(undefined as never);
+
+    // Admin consciously grants a different set.
+    const request = new Request('http://localhost/api/admin/permission-requests/5/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: ['admin'] }),
+    });
+
+    const { POST } = await import('@/app/api/admin/permission-requests/[id]/approve/route');
+    const res = await POST(request as never, makeParams(5) as never);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(db.approvePermissionRequest)).toHaveBeenCalledWith(5, ['admin']);
+  });
+
+  it('falls back to the requested set when no override is supplied', async () => {
+    vi.mocked((await import('@/lib/admin-auth')).getIsAdmin).mockResolvedValue(true);
+
+    const dbRow = { requested_permissions: '["upload","admin"]' };
+    vi.mocked((await import('@/lib/db')).getDb).mockReturnValue(mockDb(dbRow) as never);
+
+    const db = await import('@/lib/db');
+    vi.mocked(db.approvePermissionRequest).mockReturnValue(undefined as never);
+
+    const { POST } = await import('@/app/api/admin/permission-requests/[id]/approve/route');
+    const res = await POST(makePostRequest(5) as never, makeParams(5) as never);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(db.approvePermissionRequest)).toHaveBeenCalledWith(5, ['upload', 'admin']);
+  });
+
+  it('returns 400 when the admin-supplied permissions override contains an invalid value', async () => {
+    vi.mocked((await import('@/lib/admin-auth')).getIsAdmin).mockResolvedValue(true);
+
+    const db = await import('@/lib/db');
+
+    const request = new Request('http://localhost/api/admin/permission-requests/5/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: ['superadmin'] }),
+    });
+
+    const { POST } = await import('@/app/api/admin/permission-requests/[id]/approve/route');
+    const res = await POST(request as never, makeParams(5) as never);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/permissions/i);
+    expect(vi.mocked(db.approvePermissionRequest)).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an invalid JSON body', async () => {
+    vi.mocked((await import('@/lib/admin-auth')).getIsAdmin).mockResolvedValue(true);
+
+    const request = new Request('http://localhost/api/admin/permission-requests/5/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json',
+    });
+
+    const { POST } = await import('@/app/api/admin/permission-requests/[id]/approve/route');
+    const res = await POST(request as never, makeParams(5) as never);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/invalid json/i);
   });
 });
 

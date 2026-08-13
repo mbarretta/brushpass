@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 import { type NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { getUserByIdForAuth, updateUser } from '@/lib/db';
-import { hashPassword, verifyPassword } from '@/lib/token';
+import { hashPassword, verifyPassword, validatePassword } from '@/lib/token';
 
 export async function PATCH(request: NextRequest): Promise<Response> {
   let phase = 'auth';
@@ -52,8 +52,9 @@ export async function PATCH(request: NextRequest): Promise<Response> {
     if (typeof newPassword !== 'string' || !newPassword) {
       return Response.json({ error: 'newPassword is required' }, { status: 400 });
     }
-    if (newPassword.length < 8) {
-      return Response.json({ error: 'New password must be at least 8 characters' }, { status: 400 });
+    const passwordCheck = validatePassword(newPassword);
+    if (!passwordCheck.ok) {
+      return Response.json({ error: passwordCheck.error }, { status: 400 });
     }
 
     phase = 'verify-password';

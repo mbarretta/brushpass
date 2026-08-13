@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { generateToken, hashToken, verifyToken } from '@/lib/token';
+import {
+  generateToken,
+  hashToken,
+  verifyToken,
+  validatePassword,
+  validateUsername,
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from '@/lib/token';
 
 describe('generateToken()', () => {
   it('returns a 64-character hex string', () => {
@@ -50,5 +58,64 @@ describe('verifyToken()', () => {
     const hash = await hashToken(token);
     const result = await verifyToken('', hash);
     expect(result).toBe(false);
+  });
+});
+
+describe('validatePassword()', () => {
+  it('rejects a password shorter than the minimum (closes the 1-char admin gap)', () => {
+    const result = validatePassword('a');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(new RegExp(`${MIN_PASSWORD_LENGTH} characters`));
+  });
+
+  it(`rejects a password exactly one character below the ${MIN_PASSWORD_LENGTH}-char minimum`, () => {
+    const result = validatePassword('a'.repeat(MIN_PASSWORD_LENGTH - 1));
+    expect(result.ok).toBe(false);
+  });
+
+  it(`accepts a password exactly at the ${MIN_PASSWORD_LENGTH}-char minimum`, () => {
+    const result = validatePassword('a'.repeat(MIN_PASSWORD_LENGTH));
+    expect(result.ok).toBe(true);
+  });
+
+  it(`accepts a password exactly at the ${MAX_PASSWORD_LENGTH}-char maximum`, () => {
+    const result = validatePassword('a'.repeat(MAX_PASSWORD_LENGTH));
+    expect(result.ok).toBe(true);
+  });
+
+  it(`rejects a password one character over the ${MAX_PASSWORD_LENGTH}-char maximum`, () => {
+    const result = validatePassword('a'.repeat(MAX_PASSWORD_LENGTH + 1));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(new RegExp(`${MAX_PASSWORD_LENGTH} characters`));
+  });
+});
+
+describe('validateUsername()', () => {
+  it('accepts a normal username', () => {
+    expect(validateUsername('alice')).toEqual({ ok: true });
+  });
+
+  it('accepts an email-shaped username (OIDC-style)', () => {
+    expect(validateUsername('alice@example.com').ok).toBe(true);
+  });
+
+  it('rejects an empty username', () => {
+    const result = validateUsername('');
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a username over 64 characters', () => {
+    const result = validateUsername('a'.repeat(65));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a username containing control characters', () => {
+    const result = validateUsername('alice\r\nX-Injected: 1');
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a username containing whitespace', () => {
+    const result = validateUsername('alice smith');
+    expect(result.ok).toBe(false);
   });
 });
