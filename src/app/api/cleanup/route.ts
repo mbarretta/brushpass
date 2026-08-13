@@ -1,28 +1,65 @@
 export const runtime = 'nodejs';
 
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { OAuth2Client } from 'google-auth-library';
-import { getExpiredFiles, deleteFile } from '@/lib/db';
+import {
+  getExpiredFiles,
+  deleteFile,
+  getExpiredDeviceSessions,
+  deleteDeviceSession,
+} from '@/lib/db';
+import type { FileRecord } from '@/types';
 import { deleteFromGCS } from '@/lib/gcs';
-
-// The audience must match the Cloud Run service URI (no trailing slash).
-// Set AUTH_URL in production; falls back to CLEANUP_AUDIENCE for local testing.
-const OIDC_AUDIENCE = process.env.AUTH_URL ?? process.env.CLEANUP_AUDIENCE ?? '';
-const SCHEDULER_SA = process.env.CLEANUP_SCHEDULER_SA ?? '';
 
 const oidcClient = new OAuth2Client();
 
+// CLEANUP_AUDIENCE pins the scheduler audience independently of AUTH_URL;
+// AUTH_URL (the Cloud Run service's own URI) remains the fallback for
+// deployments that have not set CLEANUP_AUDIENCE explicitly yet. Read fresh
+// on every call rather than cached at module load, matching src/lib/agent-key.ts.
+function getOidcAudience(): string {
+  return process.env.CLEANUP_AUDIENCE ?? process.env.AUTH_URL ?? '';
+}
+
+function getSchedulerSa(): string {
+  return process.env.CLEANUP_SCHEDULER_SA ?? '';
+}
+
+// Fails closed: an unset audience or scheduler SA must never silently
+// disable the identity check (previously, an unset SCHEDULER_SA skipped the
+// email comparison entirely and any token that merely verified was accepted).
 async function verifyOidcToken(token: string): Promise<boolean> {
+  const audience = getOidcAudience();
+  const schedulerSa = getSchedulerSa();
+  if (!audience || !schedulerSa) return false;
   try {
-    const ticket = await oidcClient.verifyIdToken({ idToken: token, audience: OIDC_AUDIENCE });
+    const ticket = await oidcClient.verifyIdToken({ idToken: token, audience });
     const payload = ticket.getPayload();
     if (!payload) return false;
-    // Verify the token was issued by the scheduler service account.
-    if (SCHEDULER_SA && payload.email !== SCHEDULER_SA) return false;
-    return true;
+    return payload.email === schedulerSa;
   } catch {
     return false;
   }
+}
+
+type CleanupResult = { ok: true } | { ok: false; error: string };
+
+async function cleanupExpiredFile(record: FileRecord): Promise<CleanupResult> {
+  try {
+    await deleteFromGCS(record.gcs_key);
+  } catch (err) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code !== 404) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[cleanup] phase=gcs-delete key=%s error=%s', record.gcs_key, msg);
+      return { ok: false, error: `${record.gcs_key}: ${msg}` };
+    }
+    // The object is already gone from GCS — fall through and remove the row
+    // so a permanently-missing object isn't retried every hour forever.
+  }
+  deleteFile(record.id);
+  return { ok: true };
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -40,32 +77,37 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const secretMatch =
     secret.length > 0 &&
     tokenBuf.length === secretBuf.length &&
-    require('crypto').timingSafeEqual(tokenBuf, secretBuf);
+    timingSafeEqual(tokenBuf, secretBuf);
 
   if (!secretMatch && !(await verifyOidcToken(token))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const expired = getExpiredFiles();
-  const results = await Promise.allSettled(
-    expired.map(async (record) => {
-      await deleteFromGCS(record.gcs_key);
-      deleteFile(record.id);
-    }),
-  );
+  const results = await Promise.all(expired.map(cleanupExpiredFile));
 
   let deleted = 0;
   const errors: string[] = [];
-  for (const [i, result] of results.entries()) {
-    if (result.status === 'fulfilled') {
+  for (const result of results) {
+    if (result.ok) {
       deleted++;
     } else {
-      const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      console.error('[cleanup] phase=gcs-delete key=%s error=%s', expired[i].gcs_key, msg);
-      errors.push(`${expired[i].gcs_key}: ${msg}`);
+      errors.push(result.error);
     }
   }
 
-  console.log('[cleanup] deleted=%d errors=%d', deleted, errors.length);
-  return NextResponse.json({ deleted, errors });
+  // Give getExpiredDeviceSessions/deleteDeviceSession their first production
+  // caller: TTL-prune the brokered device-grant sessions in the same pass.
+  const expiredSessions = getExpiredDeviceSessions();
+  for (const session of expiredSessions) {
+    deleteDeviceSession(session.poll_token_hash);
+  }
+
+  console.log(
+    '[cleanup] deleted=%d errors=%d device_sessions_pruned=%d',
+    deleted,
+    errors.length,
+    expiredSessions.length,
+  );
+  return NextResponse.json({ deleted, errors, deviceSessionsPruned: expiredSessions.length });
 }

@@ -27,7 +27,7 @@ vi.mock('next-auth', () => ({
   }),
 }));
 
-import { getRateLimitCategory, isRateLimited, isPublicRoute } from '@/proxy';
+import { getRateLimitCategory, isRateLimited, isPublicRoute, selfAuthenticatingRoute } from '@/proxy';
 import { mintAgentKey, resolveBearerAuth, AGENT_KEY_ISSUER } from '@/lib/agent-key';
 
 const TEST_SECRET = 'test-proxy-agent-key-secret-value-1234567890';
@@ -62,6 +62,13 @@ describe('getRateLimitCategory()', () => {
     expect(getRateLimitCategory('/')).toBeNull();
     expect(getRateLimitCategory('/api/agent/device')).toBeNull();
   });
+
+  it('categorizes /api/cleanup as cleanup, protecting it from unauthenticated hammering', () => {
+    // /api/cleanup is self-authenticating (reachable pre-session), so it must
+    // carry its own rate-limit category rather than relying on cookie auth
+    // having already run.
+    expect(getRateLimitCategory('/api/cleanup')).toBe('cleanup');
+  });
 });
 
 describe('isRateLimited()', () => {
@@ -91,6 +98,33 @@ describe('isRateLimited()', () => {
     for (let i = 0; i < 1000; i++) {
       expect(isRateLimited('not-a-category', '10.0.2.1')).toBe(false);
     }
+  });
+
+  it('caps the cleanup category per IP', () => {
+    const ip = '10.0.4.1';
+    let limited = false;
+    for (let i = 0; i < 11; i++) {
+      limited = isRateLimited('cleanup', ip);
+    }
+    expect(limited).toBe(true);
+  });
+});
+
+describe('selfAuthenticatingRoute()', () => {
+  it('routes the upload API through the agent-key check', () => {
+    expect(selfAuthenticatingRoute('/api/upload')).toBe('agent-key');
+    expect(selfAuthenticatingRoute('/api/upload/complete')).toBe('agent-key');
+  });
+
+  it('routes exactly /api/cleanup to its own handler check', () => {
+    expect(selfAuthenticatingRoute('/api/cleanup')).toBe('route');
+  });
+
+  it('returns null for everything else, including near-miss paths', () => {
+    expect(selfAuthenticatingRoute('/upload')).toBeNull();
+    expect(selfAuthenticatingRoute('/admin')).toBeNull();
+    expect(selfAuthenticatingRoute('/api/cleanup/extra')).toBeNull();
+    expect(selfAuthenticatingRoute('/api/cleanups')).toBeNull();
   });
 });
 
