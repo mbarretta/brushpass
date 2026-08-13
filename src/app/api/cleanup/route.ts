@@ -9,7 +9,7 @@ import {
   getExpiredDeviceSessions,
   deleteDeviceSession,
 } from '@/lib/db';
-import type { FileRecord } from '@/types';
+import type { SafeFileRecord } from '@/types';
 import { deleteFromGCS } from '@/lib/gcs';
 
 const oidcClient = new OAuth2Client();
@@ -52,7 +52,7 @@ type CleanupResult = { ok: true } | { ok: false; error: string };
 // an unhandled 500 for the entire cleanup pass instead of one counted error. Two
 // catches (rather than one wrapping both steps) also keeps the logged phase
 // accurate — gcs-delete vs db-delete — for whichever step actually failed.
-async function cleanupExpiredFile(record: FileRecord): Promise<CleanupResult> {
+async function cleanupExpiredFile(record: SafeFileRecord): Promise<CleanupResult> {
   try {
     await deleteFromGCS(record.gcs_key);
   } catch (err) {

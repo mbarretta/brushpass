@@ -2,22 +2,25 @@
  * Unit tests for the proxy rate-limit categorization, the in-memory limiter,
  * and the agent-Bearer resolution path that the requiresUpload gate relies on.
  *
- * The full `auth()`-wrapped default export depends on next-auth's request
- * decoration (it sets `req.auth` from the session cookie) and the Edge proxy
- * harness, so it is not exercised directly here. Instead we test the pure,
- * exported decision helpers the gate is composed from — getRateLimitCategory /
- * isRateLimited — plus an end-to-end check that a real minted agent key
- * resolves to upload permissions through resolveBearerAuth (the same call the
- * Bearer branch makes) while a wrong-audience / absent key does not.
+ * With next-auth mocked to a pass-through below, the default export becomes the
+ * raw middleware and IS driven directly in the selfAuthenticatingRoute tests
+ * (req.auth is set on the fake request where the real wrapper would decorate
+ * it). We also test the pure, exported decision helpers the gate is composed
+ * from — getRateLimitCategory / isRateLimited — plus an end-to-end check that a
+ * real minted agent key resolves to upload permissions through resolveBearerAuth
+ * (the same call the Bearer branch makes) while a wrong-audience / absent key
+ * does not. Direct calls pass an undefined second context argument (unused by
+ * the handler) and narrow the void|Response return, the same next-auth typing
+ * quirk documented in tests/unit/permission-requests-route.test.ts.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SignJWT } from 'jose';
 
 // next-auth calls NextRequest from "next/server" at module-load time, which
 // doesn't resolve in the Vitest (Node) environment. Mock next-auth so that
-// `export const { auth } = NextAuth(config)` in src/auth.ts is a no-op; the
-// proxy default export wraps that auth(), but we test only the pure exported
-// helpers (getRateLimitCategory / isRateLimited), not the wrapped handler.
+// `export const { auth } = NextAuth(config)` in src/auth.ts is a no-op; with
+// auth() as identity, the proxy default export IS the raw handler, which lets
+// the selfAuthenticatingRoute tests below drive it directly.
 vi.mock('next-auth', () => ({
   default: (_config: unknown) => ({
     handlers: {},
@@ -166,7 +169,7 @@ describe('default-exported proxy handler: /api/cleanup self-authentication', () 
       auth: null,
     });
 
-    const res = await proxy(req);
+    const res = (await proxy(req, undefined as unknown as Parameters<typeof proxy>[1])) as Response;
 
     expect(res.status).not.toBe(307);
     expect(res.status).not.toBe(308);
@@ -178,7 +181,7 @@ describe('default-exported proxy handler: /api/cleanup self-authentication', () 
     // session AND no Authorization header must still be redirected, not let through.
     const req = makeProxyRequest('/api/cleanup', { auth: null });
 
-    const res = await proxy(req);
+    const res = (await proxy(req, undefined as unknown as Parameters<typeof proxy>[1])) as Response;
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('/login');
@@ -186,10 +189,11 @@ describe('default-exported proxy handler: /api/cleanup self-authentication', () 
 });
 
 describe('isPublicRoute()', () => {
-  // The full auth()-wrapped default export can't be driven in the Node test env
-  // (see file header), so we assert the gate's decision helper directly: a path
-  // that isPublicRoute() returns true for is allowed through (NextResponse.next())
-  // before the `if (!session)` block ever reaches the 307 redirect to /login.
+  // These cases assert the gate's decision helper directly for breadth (the
+  // wrapped default export is driven directly in the selfAuthenticatingRoute
+  // tests above): a path that isPublicRoute() returns true for is allowed
+  // through (NextResponse.next()) before the `if (!session)` block ever
+  // reaches the 307 redirect to /login.
   it('treats the agent device-grant endpoints as public (no /login redirect)', () => {
     // Remediates obs1: an unauthenticated agent — the only intended caller of the
     // device grant — must reach these handlers instead of being redirected.
