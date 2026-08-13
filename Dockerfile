@@ -14,10 +14,21 @@ ARG COMMIT_SHA=dev
 ENV NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN npm run build
 
+# Prune devDependencies out of the builder's node_modules before it's copied
+# into the runner stage, in a dedicated intermediate stage so the pruned tree
+# never has to be reconciled against COPY --from's own layer caching. `next
+# start` still needs to load next.config.ts at boot (Next transpiles it via its
+# own bundled SWC bindings, not the `typescript` package — verified empirically
+# by booting this exact pruned image and confirming `typescript` is absent from
+# node_modules yet `next start` still parses next.config.ts and serves `/`).
+FROM builder AS pruner
+RUN npm prune --omit=dev
+
 FROM cgr.dev/barretta/node:25-slim@sha256:05634b73bd73cac5314957aaf8ba058e85efde625758021b1755992f76469c53 AS runner
+USER 65532
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /app/.next ./.next
-COPY --from=builder --chown=65532:65532 /app/node_modules ./node_modules
+COPY --from=pruner --chown=65532:65532 /app/node_modules ./node_modules
 COPY --from=builder --chown=65532:65532 /app/package.json ./package.json
 COPY --from=builder --chown=65532:65532 /app/public ./public
 COPY --from=builder --chown=65532:65532 /app/next.config.ts ./next.config.ts
