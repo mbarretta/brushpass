@@ -11,6 +11,7 @@ import {
   deleteDeviceSession,
 } from '@/lib/db';
 import { resolveOidcUserPermissions } from '@/auth';
+import { emailDomain } from '@/lib/oidc-claims';
 import { mintAgentKey, resolveAgentKeyTtlSeconds } from '@/lib/agent-key';
 
 /**
@@ -260,7 +261,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const email = claims.email ?? '';
-  const domain = email.split('@')[1] ?? '';
+  // emailDomain() returns null unless the address is a single unambiguous
+  // local@domain pair, so 'victim@example.com@attacker.io' cannot slip past the
+  // domain gate below the way split('@')[1] allowed.
+  const domain = emailDomain(email) ?? '';
   const expectedDomain = process.env.AUTH_OIDC_ADMIN_DOMAIN ?? '';
   // If an admin domain is configured, the email/hd domain must match it before
   // we mint. Mirrors the UI-login trust boundary; with no domain configured we
@@ -288,8 +292,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ status: 'denied' }, { status: 403 });
   }
 
-  // Resolve permissions through the single source of truth (t3) and mint.
-  const resolved = await resolveOidcUserPermissions({ email, name: claims.name ?? null });
+  // Resolve permissions through the single source of truth (t3) and mint. The
+  // verification claims are forwarded, not re-derived: resolveOidcUserPermissions
+  // applies the same email_verified requirement and domain parsing to both the
+  // UI and the agent path, and refuses to resolve without them.
+  const resolved = await resolveOidcUserPermissions({
+    email,
+    name: claims.name ?? null,
+    email_verified: claims.email_verified ?? null,
+    hd: claims.hd ?? null,
+  });
   const apiKey = await mintAgentKey({
     sub: String(resolved.id),
     username: resolved.email,

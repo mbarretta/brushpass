@@ -18,7 +18,7 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/token', () => ({
-  verifyToken: vi.fn(),
+  verifySecret: vi.fn(),
 }));
 
 function makeRequest(body: unknown): Request {
@@ -69,7 +69,7 @@ describe('POST /api/groups/[slug]/access', () => {
     vi.mocked(db.isValidSlug).mockReturnValue(true);
     vi.mocked(db.getGroupBySlugForAuth).mockReturnValue(makeGroup());
     vi.mocked(db.listGroupFiles).mockReturnValue([makeFile()]);
-    vi.mocked(token.verifyToken).mockResolvedValue(true);
+    vi.mocked(token.verifySecret).mockResolvedValue(true);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const res = await POST(makeRequest({ token: 'correct-token' }) as never, {
@@ -87,14 +87,14 @@ describe('POST /api/groups/[slug]/access', () => {
     });
     expect(body.files[0]).not.toHaveProperty('gcs_key');
     expect(JSON.stringify(body)).not.toContain('$2b$');
-    expect(token.verifyToken).toHaveBeenCalledTimes(1);
+    expect(token.verifySecret).toHaveBeenCalledTimes(1);
   });
 
   it('returns a byte-identical 401 for an unknown slug and a wrong token, each doing exactly one bcrypt compare', async () => {
     const db = await import('@/lib/db');
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(true);
-    vi.mocked(token.verifyToken).mockResolvedValue(false);
+    vi.mocked(token.verifySecret).mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
 
@@ -116,31 +116,33 @@ describe('POST /api/groups/[slug]/access', () => {
     expect(res2.status).toBe(401);
     expect(res1.status).toBe(res2.status);
     expect(body1).toEqual(body2);
-    expect(token.verifyToken).toHaveBeenCalledTimes(2);
+    expect(token.verifySecret).toHaveBeenCalledTimes(2);
   });
 
-  it('compares against a fixed dummy hash for an unknown slug instead of skipping the compare', async () => {
+  it('still delegates to verifySecret for an unknown slug instead of skipping the compare', async () => {
     const db = await import('@/lib/db');
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(true);
     vi.mocked(db.getGroupBySlugForAuth).mockReturnValue(undefined);
-    vi.mocked(token.verifyToken).mockResolvedValue(false);
+    vi.mocked(token.verifySecret).mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     await POST(makeRequest({ token: 'anything' }) as never, {
       params: Promise.resolve({ slug: 'unknown-slug' }),
     });
 
-    expect(token.verifyToken).toHaveBeenCalledTimes(1);
-    const [, hashArg] = vi.mocked(token.verifyToken).mock.calls[0];
-    expect(hashArg).toMatch(/^\$2[aby]\$\d{2}\$/);
+    // The absent hash is handed to verifySecret as null rather than short-
+    // circuiting; spending the one bcrypt compare against the fixed dummy hash
+    // is verifySecret's job, asserted directly in tests/unit/token.test.ts.
+    expect(token.verifySecret).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(token.verifySecret).mock.calls[0][1]).toBeNull();
   });
 
   it('rejects a slug that fails isValidSlug without a DB lookup, but still performs one compare', async () => {
     const db = await import('@/lib/db');
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(false);
-    vi.mocked(token.verifyToken).mockResolvedValue(false);
+    vi.mocked(token.verifySecret).mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const res = await POST(makeRequest({ token: 'whatever' }) as never, {
@@ -149,7 +151,7 @@ describe('POST /api/groups/[slug]/access', () => {
 
     expect(res.status).toBe(401);
     expect(db.getGroupBySlugForAuth).not.toHaveBeenCalled();
-    expect(token.verifyToken).toHaveBeenCalledTimes(1);
+    expect(token.verifySecret).toHaveBeenCalledTimes(1);
   });
 
   it('returns 410 only after the token verifies for an expired group', async () => {
@@ -157,7 +159,7 @@ describe('POST /api/groups/[slug]/access', () => {
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(true);
     vi.mocked(db.getGroupBySlugForAuth).mockReturnValue(makeGroup({ expires_at: 1 }));
-    vi.mocked(token.verifyToken).mockResolvedValue(true);
+    vi.mocked(token.verifySecret).mockResolvedValue(true);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const res = await POST(makeRequest({ token: 'correct-token' }) as never, {
@@ -173,7 +175,7 @@ describe('POST /api/groups/[slug]/access', () => {
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(true);
     vi.mocked(db.getGroupBySlugForAuth).mockReturnValue(makeGroup({ expires_at: 1 }));
-    vi.mocked(token.verifyToken).mockResolvedValue(false);
+    vi.mocked(token.verifySecret).mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const res = await POST(makeRequest({ token: 'wrong-token' }) as never, {
@@ -193,7 +195,7 @@ describe('POST /api/groups/[slug]/access', () => {
       makeFile({ sha256: 'b'.repeat(64), expires_at: null }),
       makeFile({ sha256: 'c'.repeat(64), expires_at: now - 3600 }),
     ]);
-    vi.mocked(token.verifyToken).mockResolvedValue(true);
+    vi.mocked(token.verifySecret).mockResolvedValue(true);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const res = await POST(makeRequest({ token: 'correct-token' }) as never, {
@@ -210,7 +212,7 @@ describe('POST /api/groups/[slug]/access', () => {
     const token = await import('@/lib/token');
     vi.mocked(db.isValidSlug).mockReturnValue(true);
     vi.mocked(db.getGroupBySlugForAuth).mockReturnValue(makeGroup());
-    vi.mocked(token.verifyToken).mockResolvedValue(false);
+    vi.mocked(token.verifySecret).mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/groups/[slug]/access/route');
     const req = new Request('http://localhost/api/groups/test-group/access', {

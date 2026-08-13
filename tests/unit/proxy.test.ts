@@ -54,7 +54,7 @@ function requestWithAuth(headerValue: string | null): { headers: { get(name: str
 // handler's parameter type; the handler never touches any other member.
 function makeProxyRequest(
   pathname: string,
-  opts: { headers?: Record<string, string>; auth?: unknown } = {},
+  opts: { headers?: Record<string, string>; auth?: unknown; method?: string } = {},
 ): NextRequest {
   const headerMap = opts.headers ?? {};
   const url = new URL(`http://localhost${pathname}`);
@@ -62,6 +62,7 @@ function makeProxyRequest(
   return {
     nextUrl,
     auth: opts.auth,
+    method: opts.method ?? 'GET',
     headers: {
       get(name: string): string | null {
         const key = Object.keys(headerMap).find((k) => k.toLowerCase() === name.toLowerCase());
@@ -185,6 +186,32 @@ describe('default-exported proxy handler: /api/cleanup self-authentication', () 
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('/login');
+  });
+});
+
+describe('default-exported proxy handler: method-aware login throttling', () => {
+  // The limiter now lives in @/lib/throttle and the proxy re-exports it; this
+  // asserts the wiring, i.e. that the handler passes req.method through so the
+  // server-action login transport (POST /login) is capped while the form page
+  // (GET /login) is not.
+  it('429s a POST /login flood but never throttles the GET login page', async () => {
+    const clientIp = { 'x-forwarded-for': '203.0.113.7' };
+    let lastStatus = 0;
+    for (let i = 0; i < 11; i++) {
+      const res = (await proxy(
+        makeProxyRequest('/login', { method: 'POST', headers: clientIp, auth: null }),
+        undefined as unknown as Parameters<typeof proxy>[1],
+      )) as Response;
+      lastStatus = res.status;
+    }
+    expect(lastStatus).toBe(429);
+
+    // A GET from the same client still renders the form.
+    const page = (await proxy(
+      makeProxyRequest('/login', { method: 'GET', headers: clientIp, auth: null }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expect(page.status).not.toBe(429);
   });
 });
 

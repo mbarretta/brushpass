@@ -1,8 +1,8 @@
 export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
-import { getGroupBySlugForAuth, listGroupFiles } from '@/lib/db';
-import { verifyToken } from '@/lib/token';
+import { getGroupBySlugForAuth, listGroupFiles, isValidSlug } from '@/lib/db';
+import { verifySecret } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
 
@@ -32,22 +32,27 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     // Verify the group and the token BEFORE loading any file rows — avoids
     // loading the group's full file list for a caller who has not yet proven
     // they hold a valid token. getGroupBySlugForAuth is the one production
-    // caller that needs token_hash off the file_groups row.
+    // caller that needs token_hash off the file_groups row. The lookup only runs
+    // for a syntactically valid slug; verifySecret still spends one compare
+    // either way.
     phase = 'db-lookup';
-    const group = getGroupBySlugForAuth(slug);
-    if (!group) {
-      return Response.json({ error: 'Group not found', phase: 'db-lookup' }, { status: 404 });
+    const group = isValidSlug(slug) ? getGroupBySlugForAuth(slug) : undefined;
+
+    // An unknown group and a wrong token must be indistinguishable: same status,
+    // byte-identical body, one bcrypt compare each. Answering 404 before the
+    // compare (the previous behavior) let an anonymous caller enumerate group
+    // slugs, and answering 410 before it leaked a group's existence and expiry
+    // to someone holding no token at all. Both answers now come strictly after
+    // the token verifies — matching POST /api/groups/[slug]/access.
+    phase = 'token-verify';
+    const valid = await verifySecret(token, group?.token_hash ?? null);
+    if (!group || !valid) {
+      return Response.json({ error: 'Invalid token', phase: 'token-verify' }, { status: 401 });
     }
 
     phase = 'expiry-check';
     if (group.expires_at !== null && Math.floor(Date.now() / 1000) > group.expires_at) {
       return Response.json({ error: 'Group has expired', phase: 'expiry-check' }, { status: 410 });
-    }
-
-    phase = 'token-verify';
-    const valid = await verifyToken(token, group.token_hash);
-    if (!valid) {
-      return Response.json({ error: 'Invalid token', phase: 'token-verify' }, { status: 401 });
     }
 
     phase = 'file-lookup';

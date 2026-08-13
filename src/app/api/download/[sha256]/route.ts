@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getFileBySha256ForAuth, logDownload } from '@/lib/db';
-import { verifyToken } from '@/lib/token';
+import { verifySecret } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
 
@@ -48,9 +48,12 @@ export async function GET(
       return Response.json({ error: 'Token required', phase: 'token-extract' }, { status: 401 });
     }
 
-    // Verify token against stored bcrypt hash
+    // Verify token against stored bcrypt hash. verifySecret is the shared
+    // constant-work comparator: it always spends exactly one bcrypt compare, so
+    // this call site stays uniform with the group routes even though this route
+    // has already established that the record exists.
     phase = 'token-verify';
-    const valid = await verifyToken(token, record.token_hash);
+    const valid = await verifySecret(token, record.token_hash);
     if (!valid) {
       console.error('[download] phase=%s error=%s sha256=%s', 'token-verify', 'Invalid token', sha256);
       return Response.json({ error: 'Invalid token', phase: 'token-verify' }, { status: 401 });

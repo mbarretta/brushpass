@@ -2,19 +2,10 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getGroupBySlugForAuth, listGroupFiles, isValidSlug } from '@/lib/db';
-import { verifyToken } from '@/lib/token';
+import { verifySecret } from '@/lib/token';
 import type { PublicGroupFile } from '@/types';
 
 type Params = { params: Promise<{ slug: string }> };
-
-// A fixed, valid-format bcrypt hash (cost 10, matching hashToken) with no
-// known matching plaintext. Comparing against it when the slug does not
-// resolve to a group means an unknown slug and a wrong token both perform
-// exactly one bcrypt compare of the same cost — the route is neither an
-// existence oracle nor a timing oracle. Kept local rather than lifted into a
-// shared src/lib/token.ts helper because token.ts is also owned by task 7
-// this wave; a later pass can centralize this as verifySecret().
-const DUMMY_HASH = '$2b$10$ldoR1kAaaHJshR1Lfj/HMuI/unzyO2gkzXkRpddg5simrk5FUP9HG';
 
 export async function POST(request: NextRequest, { params }: Params): Promise<Response> {
   let phase = 'params';
@@ -29,12 +20,15 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Re
         : '';
 
     // Look the group up only for a syntactically valid slug, but always run
-    // the same single bcrypt compare below regardless — see DUMMY_HASH.
+    // the same single bcrypt compare below regardless: verifySecret compares
+    // against a fixed dummy hash of the same cost when there is no group, so an
+    // unknown slug and a wrong token are neither an existence nor a timing
+    // oracle.
     phase = 'db-lookup';
     const group = isValidSlug(slug) ? getGroupBySlugForAuth(slug) : undefined;
 
     phase = 'token-verify';
-    const valid = await verifyToken(token, group?.token_hash ?? DUMMY_HASH);
+    const valid = await verifySecret(token, group?.token_hash ?? null);
     if (!group || !valid) {
       return Response.json({ error: 'Invalid token' }, { status: 401 });
     }

@@ -25,6 +25,9 @@ vi.mock('@/lib/db', () => ({
   insertFile: vi.fn(),
   updateFileTokenHash: vi.fn(),
   updateFileExpiry: vi.fn(),
+  // resolveUploadActor re-reads the session user's CURRENT permissions rather
+  // than trusting the JWT claim, so the cookie-session paths need this too.
+  getUserById: vi.fn(),
 }));
 
 vi.mock('@/lib/token', () => ({
@@ -104,9 +107,29 @@ const BEARER_HEADER = { Authorization: 'Bearer agent.key.token' };
 /** Casts a WHATWG Request to the NextRequest the route handlers expect. */
 const asRoute = (req: Request): NextRequest => req as unknown as NextRequest;
 
-/** Builds a typed cookie-session stub for the auth() mock. */
+/**
+ * Builds a typed cookie-session stub for the auth() mock. `id` defaults to '1'
+ * because resolveUploadActor resolves permissions from the users row that id
+ * names — a session without one is treated as unauthenticated.
+ */
 const sessionWith = (user: Partial<Session['user']>): Session =>
-  ({ user, expires: '' } as unknown as Session);
+  ({ user: { id: '1', ...user }, expires: '' } as unknown as Session);
+
+/** The users row the DB re-read returns for session id '1'. */
+const dbUser = (permissions: string[]) => ({
+  id: 1,
+  username: 'testuser',
+  email: null,
+  auth_provider: 'credentials' as const,
+  permissions,
+  created_at: 1700000000,
+});
+
+/** Points the mocked getUserById at a row carrying `permissions`. */
+async function withDbPermissions(permissions: string[]): Promise<void> {
+  const { getUserById } = await import('@/lib/db');
+  vi.mocked(getUserById).mockReturnValue(dbUser(permissions) as never);
+}
 
 /**
  * Typed accessor for the mocked `auth()`. next-auth's real `auth` export is
@@ -145,6 +168,7 @@ describe('POST /api/upload — prepare phase', () => {
     vi.mocked((await import('@/lib/token')).generateToken).mockReturnValue('tok_test');
     vi.mocked((await import('@/lib/token')).hashToken).mockResolvedValue('hashed_token');
     (await mockedAuth()).mockResolvedValue(sessionWith({ username: 'testuser', permissions: ['upload'] }));
+    await withDbPermissions(['upload']);
     // Default: no agent Bearer key present (cookie-session tests).
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/gcs')).generateSignedUploadUrl).mockResolvedValue(
@@ -157,6 +181,7 @@ describe('POST /api/upload — prepare phase', () => {
 
   it('returns 403 when user has no upload/admin permission', async () => {
     (await mockedAuth()).mockResolvedValue(sessionWith({ permissions: [] }));
+    await withDbPermissions([]);
 
     const { POST } = await import('@/app/api/upload/route');
     const res = await POST(asRoute(makeRequest(validPrepareBody)));
@@ -294,6 +319,33 @@ describe('POST /api/upload — prepare phase', () => {
     expect(vi.mocked(resolveBearerAuth)).not.toHaveBeenCalled();
   });
 
+  it('returns 403 when the cookie JWT still claims upload but the DB row no longer grants it', async () => {
+    // The JWT is only an identity assertion: permissions come from the users
+    // row, so a demotion takes effect on the next request rather than when the
+    // session finally expires.
+    (await mockedAuth()).mockResolvedValue(
+      sessionWith({ username: 'testuser', permissions: ['upload', 'admin'] }),
+    );
+    await withDbPermissions([]);
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 for a cookie session whose user row has been deleted', async () => {
+    (await mockedAuth()).mockResolvedValue(
+      sessionWith({ username: 'testuser', permissions: ['upload'] }),
+    );
+    vi.mocked((await import('@/lib/db')).getUserById).mockReturnValue(undefined);
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(makeRequest(validPrepareBody)));
+
+    expect(res.status).toBe(403);
+  });
+
   it('returns a generic 500 body — never err.message — on an unexpected error', async () => {
     vi.mocked((await import('@/lib/gcs')).generateSignedUploadUrl).mockRejectedValue(
       new Error('a secret internal detail that must never reach the client'),
@@ -319,6 +371,7 @@ describe('POST /api/upload/complete', () => {
     vi.mocked((await import('@/lib/token')).generateToken).mockReturnValue('tok_test');
     vi.mocked((await import('@/lib/token')).hashToken).mockResolvedValue('hashed_token');
     (await mockedAuth()).mockResolvedValue(sessionWith({ username: 'testuser', permissions: ['upload'] }));
+    await withDbPermissions(['upload']);
     // Default: no agent Bearer key present (cookie-session tests).
     vi.mocked((await import('@/lib/agent-key')).resolveBearerAuth).mockResolvedValue(null);
     vi.mocked((await import('@/lib/db')).insertFile).mockReturnValue(
@@ -336,6 +389,7 @@ describe('POST /api/upload/complete', () => {
 
   it('returns 403 when user has no upload/admin permission', async () => {
     (await mockedAuth()).mockResolvedValue(sessionWith({ permissions: [] }));
+    await withDbPermissions([]);
 
     const { POST } = await import('@/app/api/upload/complete/route');
     const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
