@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { type NextRequest } from 'next/server';
 import { getUserById, updateUser, deleteUser } from '@/lib/db';
 import { getIsAdmin, isValidPermissionsArray } from '@/lib/admin-auth';
+import { parseId, readJson } from '@/lib/http';
 import { hashPassword, validatePassword, validateUsername } from '@/lib/token';
 import { auth } from '@/auth';
 import type { Permission } from '@/types';
@@ -18,8 +19,8 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
@@ -47,20 +48,16 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
     phase = 'body-parse';
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return Response.json({ error: 'Invalid JSON body', phase: 'body-parse' }, { status: 400 });
-    }
+    const parsed = await readJson(request);
+    if (!parsed.ok) return parsed.response;
 
-    const { username, password, permissions } = body as Record<string, unknown>;
+    const { username, password, permissions } = parsed.body as Record<string, unknown>;
 
     phase = 'build-patch';
     const patch: { username?: string; password_hash?: string; permissions?: Permission[] } = {};
@@ -141,8 +138,8 @@ export async function DELETE(request: NextRequest, { params }: Params): Promise<
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 

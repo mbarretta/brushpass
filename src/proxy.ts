@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import { resolveBearerAuth } from '@/lib/agent-key';
+import { SECURITY_HEADERS } from '@/lib/security-headers';
 import { getClientIp, getRateLimitCategory, isRateLimited } from '@/lib/throttle';
 import { NextResponse } from 'next/server';
 
@@ -89,6 +90,26 @@ export function selfAuthenticatingRoute(pathname: string): 'agent-key' | 'route'
   return null;
 }
 
+/**
+ * Stamps the shared security-header baseline onto a response and returns it.
+ *
+ * EVERY return path in the handler below goes through this — the pass-throughs,
+ * the /login redirect, the 429, and both 403s. The rejection paths are the ones
+ * that matter most: they are exactly the responses an attacker sees, and they
+ * used to ship bare. A response the proxy generates itself short-circuits
+ * routing, so `next.config.ts`'s `headers()` never gets to decorate it; this is
+ * the only thing that will.
+ *
+ * Both this and the static baseline read the same {@link SECURITY_HEADERS}
+ * record, so the two layers cannot disagree.
+ */
+export function withSecurityHeaders<T extends Response>(res: T): T {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    res.headers.set(key, value);
+  }
+  return res;
+}
+
 export default auth(async function proxy(req) {
   const { pathname } = req.nextUrl;
   const session = req.auth;
@@ -100,25 +121,15 @@ export default auth(async function proxy(req) {
   if (rateLimitCategory) {
     const ip = getClientIp(req);
     if (isRateLimited(rateLimitCategory, ip)) {
-      return new NextResponse(
+      return withSecurityHeaders(new NextResponse(
         JSON.stringify({ error: 'Too many requests' }),
         { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' } },
-      );
+      ));
     }
   }
 
-  // ── Security headers ────────────────────────────────────────────────────────
-  const securityHeaders = {
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  };
-
   if (isPublicRoute(pathname)) {
-    const res = NextResponse.next();
-    Object.entries(securityHeaders).forEach(([k, v]) => res.headers.set(k, v));
-    return res;
+    return withSecurityHeaders(NextResponse.next());
   }
 
   // No cookie session. Before redirecting to /login, allow a self-authenticating
@@ -131,23 +142,19 @@ export default auth(async function proxy(req) {
       // admin routes are never reachable this way.
       const bearer = await resolveBearerAuth(req);
       if (bearer && (bearer.permissions.includes('upload') || bearer.permissions.includes('admin'))) {
-        const res = NextResponse.next();
-        Object.entries(securityHeaders).forEach(([k, v]) => res.headers.set(k, v));
-        return res;
+        return withSecurityHeaders(NextResponse.next());
       }
     } else if (selfAuthKind === 'route' && req.headers.get('authorization')) {
       // /api/cleanup: let the request reach the handler, which performs its
       // own OIDC / CLEANUP_SECRET verification and returns 401 itself.
-      const res = NextResponse.next();
-      Object.entries(securityHeaders).forEach(([k, v]) => res.headers.set(k, v));
-      return res;
+      return withSecurityHeaders(NextResponse.next());
     }
 
     // Not authenticated — redirect to /login with callbackUrl
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = '/login';
     loginUrl.searchParams.set('callbackUrl', req.nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+    return withSecurityHeaders(NextResponse.redirect(loginUrl));
   }
 
   const permissions: string[] = session.user?.permissions ?? [];
@@ -155,36 +162,52 @@ export default auth(async function proxy(req) {
   if (requiresAdmin(pathname)) {
     if (!permissions.includes('admin')) {
       // Authenticated but insufficient permissions
-      return new NextResponse(
+      return withSecurityHeaders(new NextResponse(
         JSON.stringify({ error: 'Forbidden', phase: 'auth' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } },
-      );
+      ));
     }
   }
 
   if (requiresUpload(pathname)) {
     if (!permissions.includes('upload') && !permissions.includes('admin')) {
-      return new NextResponse(
+      return withSecurityHeaders(new NextResponse(
         JSON.stringify({ error: 'Forbidden', phase: 'auth' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } },
-      );
+      ));
     }
   }
 
-  const res = NextResponse.next();
-  Object.entries(securityHeaders).forEach(([k, v]) => res.headers.set(k, v));
-  return res;
+  return withSecurityHeaders(NextResponse.next());
 });
 
 export const config = {
   matcher: [
     /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico
-     * - public folder assets
+     * 1. EVERY /api path, unconditionally.
+     *
+     * The second entry's static-asset exclusion is a suffix test over the whole
+     * path, not a directory test, so a request to `/api/admin/files/1.png`
+     * matched `.*\.png$` and skipped the proxy entirely: no auth gate, no rate
+     * limit, no security headers. Next still routed it to the `[id]` handler,
+     * where `parseInt('1.png', 10)` happily produced id 1 — appending a fake
+     * extension to any /api path was a complete bypass of this file.
+     *
+     * API routes never serve static assets, so this entry carries no
+     * exclusions at all. (`@/lib/http`'s parseId closes the coercion half of
+     * the same bug at the handlers.)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/api/:path*',
+    /*
+     * 2. Everything else, except paths that are genuinely static:
+     * - api/ (covered exhaustively by entry 1 above)
+     * - _next/static (build output)
+     * - _next/image (image optimization)
+     * - favicon.ico and /public folder assets
+     *
+     * These get the header baseline from next.config.ts's headers() instead,
+     * which Next checks before the filesystem.
+     */
+    '/((?!api/|_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

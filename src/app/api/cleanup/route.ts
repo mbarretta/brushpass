@@ -11,6 +11,7 @@ import {
 } from '@/lib/db';
 import type { SafeFileRecord } from '@/types';
 import { deleteFromGCS } from '@/lib/gcs';
+import { extractBearerToken } from '@/lib/http';
 
 const oidcClient = new OAuth2Client();
 
@@ -78,8 +79,7 @@ async function cleanupExpiredFile(record: SafeFileRecord): Promise<CleanupResult
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const authHeader = req.headers.get('authorization') ?? '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const token = extractBearerToken(req) ?? '';
   if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { type NextRequest } from 'next/server';
 import { getFileById } from '@/lib/db';
 import { getIsAdmin } from '@/lib/admin-auth';
+import { parseId } from '@/lib/http';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
 
 type Params = { params: Promise<{ id: string }> };
@@ -16,8 +17,8 @@ export async function GET(_request: NextRequest, { params }: Params): Promise<Re
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 

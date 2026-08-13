@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { type NextRequest } from 'next/server';
 import { getFileById, getDownloadLogs, updateFileExpiry, updateFileTokenHash, deleteFile } from '@/lib/db';
 import { getIsAdmin } from '@/lib/admin-auth';
+import { parseId, readJson } from '@/lib/http';
 import { generateToken, hashToken } from '@/lib/token';
 import { deleteFromGCS } from '@/lib/gcs';
 
@@ -17,8 +18,8 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
@@ -49,20 +50,16 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
     phase = 'body-parse';
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return Response.json({ error: 'Invalid JSON body', phase: 'body-parse' }, { status: 400 });
-    }
+    const parsed = await readJson(request);
+    if (!parsed.ok) return parsed.response;
 
-    const { expires_at } = body as Record<string, unknown>;
+    const { expires_at } = parsed.body as Record<string, unknown>;
     if (expires_at !== null && typeof expires_at !== 'number') {
       return Response.json(
         { error: 'expires_at must be a number or null', phase: 'body-parse' },
@@ -90,8 +87,8 @@ export async function POST(_request: NextRequest, { params }: Params): Promise<R
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
@@ -125,8 +122,8 @@ export async function DELETE(request: NextRequest, { params }: Params): Promise<
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 

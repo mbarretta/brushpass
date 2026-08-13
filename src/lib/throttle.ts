@@ -27,10 +27,11 @@
  * shared store (Redis/Firestore) or the caps become per-instance caps.
  */
 
-/** Anything exposing `headers.get()`: `NextRequest`, `Request`, or a test stub. */
-export interface HeaderSource {
-  headers: { get(name: string): string | null };
-}
+// The generic "anything with headers.get()" shape now lives in @/lib/http next
+// to the other transport-level helpers; re-exported here so existing importers
+// of @/lib/throttle (src/auth.ts, tests/unit/throttle.test.ts) keep working.
+import type { HeaderSource } from '@/lib/http';
+export type { HeaderSource };
 
 // ── Client IP resolution ──────────────────────────────────────────────────────
 
