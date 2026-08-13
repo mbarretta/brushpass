@@ -30,7 +30,7 @@ sensitivity:
 | `AGENT_OIDC_CLIENT_ID` | `.env` | Secret. Sourced from `.env` by the deploy scripts (below) and passed to Terraform as `TF_VAR_agent_oidc_client_id`. **Keep it out of `terraform.tfvars`.** |
 | `AGENT_OIDC_CLIENT_SECRET` | `.env` | Secret. Same as above. |
 | `AGENT_KEY_TTL_SECONDS` | `.env` (optional) | Minted-key lifetime; default `900`. |
-| `AGENT_KEY_SECRET` | `.env` (optional) | Dedicated signing secret; falls back to `AUTH_SECRET` when unset. |
+| `AGENT_KEY_SECRET` | `.env` (optional, but see below) | Dedicated signing secret; falls back to `AUTH_SECRET` when unset. **Set this before ever rotating `AUTH_SECRET`** — see "Rotation" below. |
 | `oidc_issuer` | `.env` (`AUTH_OIDC_ISSUER`) **or** `terraform.tfvars` | **Non-secret** (e.g. `https://accounts.google.com`). Emitted as `AUTH_OIDC_ISSUER`. **Required** for the agent flow — without it discovery fails with `AUTH_OIDC_ISSUER is not configured`. |
 | `oidc_admin_domain` | `.env` (`AUTH_OIDC_ADMIN_DOMAIN`) **or** `terraform.tfvars` | **Non-secret** (e.g. `example.com`). Emitted as `AUTH_OIDC_ADMIN_DOMAIN`; the minted key gets `upload`/`admin` only for accounts in this domain. |
 
@@ -55,7 +55,9 @@ The Terraform helper scripts in `terraform/` automatically source `.env` and map
 the secrets onto `TF_VAR_*` (via `common.sh`'s `load_env_tfvars`), so you do not
 hand-edit `terraform.tfvars` for secrets:
 
-- `./deploy.sh` — build + push the image, then `terraform apply` (full deploy).
+- `./deploy.sh` — build + push the image, then plan, show the plan, and prompt
+  for confirmation before applying (full deploy; `--plan` to stop after the
+  plan, `--yes` to skip the confirmation prompt for CI/non-interactive use).
 - `./apply.sh [plan|apply ...]` — Terraform only, no image rebuild (infra/secret
   changes; e.g. `./apply.sh plan`).
 - `./redeploy.sh` — image-only (no Terraform); does **not** touch agent config.
@@ -63,3 +65,21 @@ hand-edit `terraform.tfvars` for secrets:
 After a deploy, verify with an unauthenticated `POST /api/agent/device/start` —
 it should return `200` with a `verification_uri`, `user_code`, and `poll_token`
 (not a redirect to `/login`, and never the raw `device_code`).
+
+## Rotation
+
+Every secret above (plus `AUTH_SECRET` and `CLEANUP_SECRET`) is wired into the
+Cloud Run service by a **pinned** `google_secret_manager_secret_version`
+resource, not `:latest`. Adding a new version out-of-band — via the Cloud
+Console or `gcloud secrets versions add` — has **no effect on the running
+service** until Terraform re-applies and updates the pinned version reference,
+which also forces a new Cloud Run revision. Rotating any of these values is
+therefore always a `./apply.sh` (or `./deploy.sh`), never a Secret Manager
+console action alone.
+
+`AGENT_KEY_SECRET` in particular must be set — decoupling agent-key signing
+from the `AUTH_SECRET` fallback above — **before** `AUTH_SECRET` is ever
+rotated, or the rotation invalidates every live agent key at the same moment
+it signs out every session. See `docs/runbooks/secret-rotation.md` for the
+full rotation order (least-disruptive first) and the make-before-break
+procedure for the agent OAuth client secret specifically.
