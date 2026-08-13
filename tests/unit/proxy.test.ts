@@ -30,8 +30,16 @@ vi.mock('next-auth', () => ({
   }),
 }));
 
-import proxy, { getRateLimitCategory, isRateLimited, isPublicRoute, selfAuthenticatingRoute } from '@/proxy';
+import proxy, {
+  config,
+  getRateLimitCategory,
+  isRateLimited,
+  isPublicRoute,
+  selfAuthenticatingRoute,
+  withSecurityHeaders,
+} from '@/proxy';
 import { mintAgentKey, resolveBearerAuth, AGENT_KEY_ISSUER } from '@/lib/agent-key';
+import { SECURITY_HEADERS } from '@/lib/security-headers';
 import type { NextRequest } from 'next/server';
 
 const TEST_SECRET = 'test-proxy-agent-key-secret-value-1234567890';
@@ -98,6 +106,21 @@ describe('getRateLimitCategory()', () => {
     // carry its own rate-limit category rather than relying on cookie auth
     // having already run.
     expect(getRateLimitCategory('/api/cleanup')).toBe('cleanup');
+  });
+
+  it('categorizes the anonymous group-token surfaces, which each cost a bcrypt compare', () => {
+    expect(getRateLimitCategory('/api/groups/my-group/access', 'POST')).toBe('group_access');
+    expect(getRateLimitCategory('/api/groups/my-group/files/abc')).toBe('group_download');
+    // The access route is only a bcrypt surface on POST; a GET must not be
+    // charged against the tighter interactive-unlock budget.
+    expect(getRateLimitCategory('/api/groups/my-group/access', 'GET')).toBeNull();
+  });
+
+  it('categorizes the new tokenless download POST alongside the GET', () => {
+    // POST /api/download/[sha256] is the browser's tokenless path and spends a
+    // bcrypt compare exactly like the GET, so it must share the same cap.
+    expect(getRateLimitCategory('/api/download/abc', 'POST')).toBe('download');
+    expect(getRateLimitCategory('/api/download/abc', 'GET')).toBe('download');
   });
 });
 
@@ -212,6 +235,186 @@ describe('default-exported proxy handler: method-aware login throttling', () => 
       undefined as unknown as Parameters<typeof proxy>[1],
     )) as Response;
     expect(page.status).not.toBe(429);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// config.matcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Compiles one `config.matcher` entry to the regex Next would derive from it.
+ *
+ * Only the two shapes this app actually uses are understood, and an entry in
+ * any other shape throws rather than silently failing to match — a test that
+ * quietly stops exercising the matcher is worse than no test.
+ */
+function matcherToRegExp(source: string): RegExp {
+  // path-to-regexp form: `:path*` is zero-or-more segments, so `/api` itself
+  // and every path beneath it match.
+  if (source === '/api/:path*') return /^\/api(?:\/.*)?$/;
+  // Raw regular-expression form (the negative-lookahead entry).
+  if (source.includes('(?!')) return new RegExp(`^${source}$`);
+  throw new Error(`proxy matcher entry not understood by this test: ${source}`);
+}
+
+/** True when at least one matcher entry claims the path, as Next ORs them. */
+function proxyMatches(pathname: string): boolean {
+  return config.matcher.map(matcherToRegExp).some((re) => re.test(pathname));
+}
+
+describe('config.matcher', () => {
+  it('gates every /api path even when it carries a fake static extension', () => {
+    // The bug: the old single entry excluded `.*\.png$` across the WHOLE path,
+    // so appending `.png` to any API path skipped the proxy completely — no
+    // auth gate, no rate limit, no security headers — while Next still routed
+    // it to the handler.
+    expect(proxyMatches('/api/admin/files/1.png')).toBe(true);
+    expect(proxyMatches('/api/admin/users/1.png')).toBe(true);
+    expect(proxyMatches('/api/admin/files/1.jpg')).toBe(true);
+    expect(proxyMatches('/api/cleanup.svg')).toBe(true);
+    expect(proxyMatches('/api/upload/complete.webp')).toBe(true);
+  });
+
+  it('gates ordinary /api paths and the /api root', () => {
+    expect(proxyMatches('/api')).toBe(true);
+    expect(proxyMatches('/api/admin/files/1')).toBe(true);
+    expect(proxyMatches('/api/download/abc')).toBe(true);
+  });
+
+  it('still gates non-API app paths', () => {
+    expect(proxyMatches('/')).toBe(true);
+    expect(proxyMatches('/admin')).toBe(true);
+    expect(proxyMatches('/upload')).toBe(true);
+    expect(proxyMatches('/login')).toBe(true);
+  });
+
+  it('still lets genuine static assets bypass the proxy', () => {
+    // These get the header baseline from next.config.ts's headers() instead,
+    // which Next checks before the filesystem.
+    expect(proxyMatches('/brushpass-logo.png')).toBe(false);
+    expect(proxyMatches('/_next/static/chunks/main.js')).toBe(false);
+    expect(proxyMatches('/_next/image')).toBe(false);
+    expect(proxyMatches('/favicon.ico')).toBe(false);
+    expect(proxyMatches('/some/nested/asset.webp')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Security headers on every proxy return path
+// ---------------------------------------------------------------------------
+
+/** Asserts the full shared baseline is present on a proxy-generated response. */
+function expectSecurityHeaders(res: Response) {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    expect(res.headers.get(key), `missing header ${key}`).toBe(value);
+  }
+}
+
+describe('withSecurityHeaders()', () => {
+  it('stamps the whole baseline onto any response and returns the same object', () => {
+    const res = new Response('body', { status: 418 });
+    const returned = withSecurityHeaders(res);
+
+    expect(returned).toBe(res);
+    expect(returned.status).toBe(418);
+    expectSecurityHeaders(returned);
+  });
+
+  it('overwrites a pre-set value rather than appending a second header', () => {
+    // Header duplication is how a weaker policy sneaks past a stronger one.
+    const res = new Response(null, { headers: { 'X-Frame-Options': 'SAMEORIGIN' } });
+    withSecurityHeaders(res);
+    expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+  });
+});
+
+describe('default-exported proxy handler: security headers on every return path', () => {
+  it('includes a report-only CSP that still permits the direct-to-GCS upload PUT', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/', { auth: null }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+
+    const csp = res.headers.get('Content-Security-Policy-Report-Only');
+    expect(csp).not.toBeNull();
+    // Omitting this host would silently break every upload: the browser PUTs
+    // file bytes straight to the signed GCS URL via XMLHttpRequest.
+    expect(csp).toContain("connect-src 'self' https://storage.googleapis.com");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    // Report-Only in this change by design; the enforcing header must not be
+    // set until the nonce work lands (see src/lib/security-headers.ts).
+    expect(res.headers.get('Content-Security-Policy')).toBeNull();
+    expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=');
+  });
+
+  it('stamps them on a public pass-through', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/', { auth: null }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expectSecurityHeaders(res);
+  });
+
+  it('stamps them on the 429', async () => {
+    const clientIp = { 'x-forwarded-for': '203.0.113.44' };
+    let res!: Response;
+    for (let i = 0; i < 11; i++) {
+      res = (await proxy(
+        makeProxyRequest('/login', { method: 'POST', headers: clientIp, auth: null }),
+        undefined as unknown as Parameters<typeof proxy>[1],
+      )) as Response;
+    }
+    expect(res.status).toBe(429);
+    expectSecurityHeaders(res);
+  });
+
+  it('stamps them on the admin 403', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/api/admin/users', { auth: { user: { id: '1', permissions: ['upload'] } } }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expect(res.status).toBe(403);
+    expectSecurityHeaders(res);
+  });
+
+  it('stamps them on the upload 403', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/api/upload', { auth: { user: { id: '1', permissions: [] } } }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expect(res.status).toBe(403);
+    expectSecurityHeaders(res);
+  });
+
+  it('stamps them on the /login redirect', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/admin', { auth: null }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expect(res.status).toBe(307);
+    expectSecurityHeaders(res);
+  });
+
+  it('stamps them on an authenticated pass-through', async () => {
+    const res = (await proxy(
+      makeProxyRequest('/api/admin/users', { auth: { user: { id: '1', permissions: ['admin'] } } }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expectSecurityHeaders(res);
+  });
+
+  it('gates a fake-extension admin path rather than letting it through bare', async () => {
+    // The end-to-end shape of ac1: with the matcher fixed, this request now
+    // reaches the proxy at all, and the proxy rejects it WITH the headers.
+    const res = (await proxy(
+      makeProxyRequest('/api/admin/files/1.png', { auth: null }),
+      undefined as unknown as Parameters<typeof proxy>[1],
+    )) as Response;
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login');
+    expectSecurityHeaders(res);
   });
 });
 

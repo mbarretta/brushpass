@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getIsAdmin, isValidPermissionsArray } from '@/lib/admin-auth';
+import { parseId } from '@/lib/http';
 import { getDb, approvePermissionRequest } from '@/lib/db';
 import type { Permission } from '@/types';
 
@@ -16,8 +17,8 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Re
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 

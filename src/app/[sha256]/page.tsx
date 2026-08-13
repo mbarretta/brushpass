@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { isValidSha256 } from '@/lib/sha256';
+import TokenForm from './TokenForm';
 
 export const metadata = { title: 'Download File' };
 
@@ -18,7 +19,10 @@ export default async function DownloadPage({
 
   const { token, error } = await searchParams;
 
-  // If token is present, redirect immediately to the download API
+  // Already-shared links of the form /<sha256>?token=... keep working. No new
+  // exposure is created by forwarding: the token is already in this request's
+  // own URL by the time we see it. Links created from here on carry no token —
+  // TokenForm below POSTs it instead.
   if (token) {
     redirect('/api/download/' + sha256 + '?token=' + encodeURIComponent(token));
   }
@@ -45,22 +49,7 @@ export default async function DownloadPage({
             <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-6">
               Paste the token you received when this file was uploaded.
             </p>
-            <form method="get" action={`/api/download/${sha256}`} className="flex flex-col gap-3">
-              <input
-                name="token"
-                type="text"
-                placeholder="Paste token here"
-                required
-                autoFocus
-                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-200"
-              />
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium py-2.5 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
-              >
-                Download
-              </button>
-            </form>
+            <TokenForm sha256={sha256} />
             <div className="mt-6 pt-5 border-t border-zinc-100 dark:border-zinc-800">
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">File hash (SHA-256)</p>
               <p className="text-sm font-mono text-zinc-700 dark:text-zinc-300 break-all">{sha256}</p>

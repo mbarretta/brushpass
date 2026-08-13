@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getGroupBySlugForAuth, listGroupFiles, isValidSlug } from '@/lib/db';
+import { extractBearerToken } from '@/lib/http';
 import { verifySecret } from '@/lib/token';
 import { isValidSha256 } from '@/lib/sha256';
 import { generateSignedDownloadUrl } from '@/lib/gcs';
@@ -20,11 +21,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     phase = 'token-extract';
     // Prefer Authorization: Bearer header; fall back to ?token= query param for
     // backwards compatibility. The header avoids token exposure in logs/history.
-    const authHeader = request.headers.get('authorization') ?? '';
+    const bearerToken = extractBearerToken(request);
     const url = new URL(request.url);
-    const token =
-      (authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null) ??
-      url.searchParams.get('token');
+    const token = bearerToken ?? url.searchParams.get('token');
     if (!token) {
       return Response.json({ error: 'Token required', phase: 'token-extract' }, { status: 401 });
     }
@@ -81,7 +80,7 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     // When called via fetch() (Authorization header path), proxy the bytes so the
     // client can blob-download without exposing the signed GCS URL or the token in
     // the URL bar. For backwards-compatible ?token= redirect path, keep the redirect.
-    if (authHeader.startsWith('Bearer ')) {
+    if (bearerToken) {
       const gcsRes = await fetch(signedUrl);
       return new Response(gcsRes.body, {
         headers: {

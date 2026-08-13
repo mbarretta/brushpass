@@ -14,6 +14,7 @@
  * never logged from this module.
  */
 import { SignJWT, jwtVerify, errors as joseErrors } from 'jose';
+import { extractBearerToken, type HeaderSource } from '@/lib/http';
 import type { Permission } from '@/types';
 
 /** Fixed issuer stamped into every minted key and required at verification. */
@@ -184,30 +185,18 @@ export async function verifyAgentKey(token: string): Promise<VerifiedAgentKey | 
 }
 
 /**
- * Extracts the bearer token from a request's Authorization header.
- * Returns the raw token, or null if the header is absent or not a `Bearer` scheme.
- * Accepts a WHATWG Request or anything exposing `headers.get`.
- */
-function extractBearerToken(request: { headers: { get(name: string): string | null } }): string | null {
-  const header = request.headers.get('authorization') ?? request.headers.get('Authorization');
-  if (!header) return null;
-  const match = /^Bearer[ ]+(.+)$/i.exec(header.trim());
-  if (!match) return null;
-  const token = match[1].trim();
-  return token === '' ? null : token;
-}
-
-/**
  * Resolves an agent identity from a request's `Authorization: Bearer <token>`
  * header. This is the single Bearer-resolution helper imported by the upload
  * routes and the proxy so there is exactly one verification path.
  *
+ * Header parsing itself comes from {@link extractBearerToken} in `@/lib/http`,
+ * shared with the download, group-download and cleanup routes, so all four
+ * agree on scheme case, whitespace, and the prefix-less header.
+ *
  * Returns { username, permissions } on a valid aud:"upload" key, or null for a
  * missing, malformed, expired, wrong-audience, or otherwise invalid header.
  */
-export async function resolveBearerAuth(
-  request: { headers: { get(name: string): string | null } },
-): Promise<BearerAuth | null> {
+export async function resolveBearerAuth(request: HeaderSource): Promise<BearerAuth | null> {
   const token = extractBearerToken(request);
   if (!token) return null;
 

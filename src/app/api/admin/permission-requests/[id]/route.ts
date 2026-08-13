@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getIsAdmin } from '@/lib/admin-auth';
+import { parseId } from '@/lib/http';
 import { getDb, denyPermissionRequest } from '@/lib/db';
 
 type Params = { params: Promise<{ id: string }> };
@@ -15,8 +16,8 @@ export async function DELETE(_request: NextRequest, { params }: Params): Promise
 
     phase = 'params';
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parseId(id);
+    if (numericId === null) {
       return Response.json({ error: 'Invalid id', phase: 'params' }, { status: 400 });
     }
 
