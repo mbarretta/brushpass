@@ -46,13 +46,17 @@ afterEach(async () => {
 
 describe('upsertOidcUser()', () => {
   it('inserts user on first call with correct email, auth_provider=oidc, and permissions', async () => {
-    const { upsertOidcUser } = await import('@/lib/db');
+    const { upsertOidcUser, getDb } = await import('@/lib/db');
     const user = upsertOidcUser('alice@chainguard.dev', 'Alice', ['upload', 'admin']);
     expect(user.email).toBe('alice@chainguard.dev');
     expect(user.auth_provider).toBe('oidc');
     expect(user.permissions).toEqual(['upload', 'admin']);
-    expect(user.password_hash).toBeNull();
     expect(typeof user.id).toBe('number');
+    // upsertOidcUser() no longer selects password_hash — read it straight from the row.
+    const row = getDb()
+      .prepare<[number], { password_hash: string | null }>('SELECT password_hash FROM users WHERE id = ?')
+      .get(user.id);
+    expect(row?.password_hash).toBeNull();
   });
 
   it('uses name as username on insert', async () => {

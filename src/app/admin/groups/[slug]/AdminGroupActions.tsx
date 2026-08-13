@@ -2,12 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import type { FileRecord } from '@/types';
+import type { SafeFileRecord } from '@/types';
 
 interface AdminGroupActionsProps {
   slug: string;
   name: string;
-  allFiles: FileRecord[];
+  allFiles: SafeFileRecord[];
   memberIds: Set<number>;
 }
 

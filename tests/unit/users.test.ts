@@ -47,6 +47,7 @@ describe('listUsers', () => {
     expect(result[0].id).toBe(user.id);
     expect(result[0].username).toBe('alice');
     expect(result[0].permissions).toEqual(['upload']);
+    expect(result[0]).not.toHaveProperty('password_hash');
   });
 
   it('returns multiple users ordered by id ASC', async () => {
@@ -72,10 +73,23 @@ describe('createUser', () => {
     });
     expect(user.username).toBe('charlie');
     expect(user.permissions).toEqual(['upload', 'admin']);
+    expect(user).not.toHaveProperty('password_hash');
     const fetched = getUserById(user.id);
     expect(fetched).toBeDefined();
     expect(fetched!.username).toBe('charlie');
     expect(fetched!.permissions).toEqual(['upload', 'admin']);
+    expect(fetched).not.toHaveProperty('password_hash');
+  });
+
+  it('getUserByIdForAuth includes password_hash; getUserByUsernameForAuth does too', async () => {
+    const { createUser, getUserByIdForAuth, getUserByUsernameForAuth } = await import('@/lib/db');
+    const user = createUser({
+      username: 'frank',
+      password_hash: '$2b$10$authvariant',
+      permissions: [],
+    });
+    expect(getUserByIdForAuth(user.id)?.password_hash).toBe('$2b$10$authvariant');
+    expect(getUserByUsernameForAuth('frank')?.password_hash).toBe('$2b$10$authvariant');
   });
 
   it('assigns a numeric id to the created user', async () => {
@@ -118,10 +132,10 @@ describe('updateUser', () => {
   });
 
   it('updates password_hash', async () => {
-    const { updateUser, getUserById } = await import('@/lib/db');
+    const { updateUser, getUserByIdForAuth } = await import('@/lib/db');
     const user = await insertTestUser();
     updateUser(user.id, { password_hash: '$2b$10$newhash' });
-    const updated = getUserById(user.id);
+    const updated = getUserByIdForAuth(user.id);
     expect(updated?.password_hash).toBe('$2b$10$newhash');
   });
 

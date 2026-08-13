@@ -12,7 +12,10 @@ import {
   _resetDb,
   insertGroup,
   getGroupBySlug,
+  getGroupBySlugForAuth,
   getGroupById,
+  getGroupNameBySlug,
+  getGroupsForFile,
   listGroups,
   updateGroup,
   deleteGroup,
@@ -85,10 +88,23 @@ describe('getGroupBySlug', () => {
     const group = getGroupBySlug('test-group');
     expect(group).toBeDefined();
     expect(group!.name).toBe('Test Group');
+    expect(group).not.toHaveProperty('token_hash');
   });
 
   it('returns undefined for unknown slug', () => {
     expect(getGroupBySlug('no-such-group')).toBeUndefined();
+  });
+});
+
+describe('getGroupBySlugForAuth', () => {
+  it('includes token_hash', () => {
+    insertGroup(BASE_GROUP);
+    const group = getGroupBySlugForAuth('test-group');
+    expect(group?.token_hash).toBe(BASE_GROUP.token_hash);
+  });
+
+  it('returns undefined for unknown slug', () => {
+    expect(getGroupBySlugForAuth('no-such-group')).toBeUndefined();
   });
 });
 
@@ -98,10 +114,23 @@ describe('getGroupById', () => {
     const found = getGroupById(created.id);
     expect(found).toBeDefined();
     expect(found!.slug).toBe('test-group');
+    expect(found).not.toHaveProperty('token_hash');
   });
 
   it('returns undefined for unknown id', () => {
     expect(getGroupById(999)).toBeUndefined();
+  });
+});
+
+describe('getGroupNameBySlug', () => {
+  it('returns only the name and expiry for a known slug', () => {
+    insertGroup(BASE_GROUP);
+    const projected = getGroupNameBySlug('test-group');
+    expect(projected).toEqual({ name: 'Test Group', expires_at: null });
+  });
+
+  it('returns undefined for unknown slug', () => {
+    expect(getGroupNameBySlug('no-such-group')).toBeUndefined();
   });
 });
 
@@ -122,6 +151,25 @@ describe('listGroups', () => {
     expect(first.member_count).toBe(1);
     const second = groups.find(gr => gr.slug === 'second-group')!;
     expect(second.member_count).toBe(0);
+    expect(groups.every((gr) => !('token_hash' in gr))).toBe(true);
+  });
+});
+
+describe('getGroupsForFile', () => {
+  it('returns the groups a file belongs to, without token_hash', () => {
+    const g = insertGroup(BASE_GROUP);
+    const file = insertFile(BASE_FILE);
+    addFileToGroup(g.id, file.id);
+
+    const groups = getGroupsForFile(file.id);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].slug).toBe('test-group');
+    expect(groups[0]).not.toHaveProperty('token_hash');
+  });
+
+  it('returns an empty array for a file in no groups', () => {
+    const file = insertFile(BASE_FILE);
+    expect(getGroupsForFile(file.id)).toHaveLength(0);
   });
 });
 
@@ -212,7 +260,7 @@ describe('addFileToGroup / removeFileFromGroup / listGroupFiles', () => {
 });
 
 describe('getGroupWithFiles', () => {
-  it('returns group with files array', () => {
+  it('returns group with files array, and neither the group nor its files carry token_hash', () => {
     const g = insertGroup(BASE_GROUP);
     const f = insertFile(BASE_FILE);
     addFileToGroup(g.id, f.id);
@@ -221,6 +269,8 @@ describe('getGroupWithFiles', () => {
     expect(result!.name).toBe('Test Group');
     expect(result!.files).toHaveLength(1);
     expect(result!.files[0].sha256).toBe(BASE_FILE.sha256);
+    expect(result).not.toHaveProperty('token_hash');
+    expect(result!.files[0]).not.toHaveProperty('token_hash');
   });
 
   it('returns group with empty files array when no members', () => {
@@ -228,6 +278,7 @@ describe('getGroupWithFiles', () => {
     const result = getGroupWithFiles('test-group');
     expect(result).toBeDefined();
     expect(result!.files).toHaveLength(0);
+    expect(result).not.toHaveProperty('token_hash');
   });
 
   it('returns undefined for unknown slug', () => {

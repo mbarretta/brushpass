@@ -31,11 +31,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     phase = 'db-metrics';
     const download_logs = getDownloadLogs(numericId);
 
-    // Strip token_hash before returning
-    const { token_hash: _th, ...safeRecord } = record;
-
+    // getFileById() already projects out token_hash — no strip needed.
     console.log('[admin] action=get id=%d download_count=%d', numericId, download_logs.length);
-    return Response.json({ ...safeRecord, download_count: download_logs.length, download_logs });
+    return Response.json({ ...record, download_count: download_logs.length, download_logs });
   } catch (err) {
     console.error('[admin] phase=%s error=%s', phase, String(err));
     return Response.json({ error: 'Internal server error', phase }, { status: 500 });

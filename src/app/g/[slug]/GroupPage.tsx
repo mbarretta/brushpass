@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { FileGroupWithFiles } from '@/types';
+import type { SafeFileGroupWithFiles } from '@/types';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -10,7 +10,7 @@ function formatBytes(bytes: number): string {
 }
 
 interface GroupPageProps {
-  group: FileGroupWithFiles;
+  group: SafeFileGroupWithFiles;
   slug: string;
 }
 

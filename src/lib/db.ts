@@ -1,7 +1,18 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { FileRecord, DownloadLog, User, Permission, FileGroup, FileGroupWithFiles, PermissionRequest } from '@/types';
+import type {
+  FileRecord,
+  DownloadLog,
+  User,
+  Permission,
+  FileGroup,
+  PermissionRequest,
+  SafeFileRecord,
+  SafeFileGroup,
+  SafeUser,
+  SafeFileGroupWithFiles,
+} from '@/types';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -191,6 +202,12 @@ export function getDb(): Database.Database {
   // writes directly to the main DB file with no sidecars, which is safe for our
   // single-writer Cloud Run setup and survives revision restarts correctly.
   db.pragma('journal_mode = DELETE');
+  // Enforce the schema's ON DELETE CASCADE clauses (files→download_logs,
+  // file_groups→file_group_members, files→file_group_members,
+  // users→permission_requests). better-sqlite3 already defaults this pragma
+  // to on, but we set it explicitly so the behavior does not depend on a
+  // library default that could change.
+  db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
   runMigrations(db);
 
@@ -208,26 +225,44 @@ export function _resetDb(): void {
 
 type InsertFileData = Omit<FileRecord, 'id' | 'uploaded_at'>;
 
-export function insertFile(data: InsertFileData): FileRecord {
+// Explicit column list shared by every getter that must not select token_hash.
+const SAFE_FILE_COLUMNS = `
+  id, filename, original_name, sha256, size, content_type, gcs_key,
+  expires_at, uploaded_at, uploaded_by
+`;
+
+export function insertFile(data: InsertFileData): SafeFileRecord {
   const db = getDb();
   const stmt = db.prepare<InsertFileData>(`
     INSERT INTO files (filename, original_name, sha256, size, content_type, gcs_key, token_hash, expires_at, uploaded_by)
     VALUES (@filename, @original_name, @sha256, @size, @content_type, @gcs_key, @token_hash, @expires_at, @uploaded_by)
   `);
   const result = stmt.run(data);
-  const record = db.prepare<[number], FileRecord>('SELECT * FROM files WHERE id = ?').get(result.lastInsertRowid as number);
+  const record = db
+    .prepare<[number], SafeFileRecord>(`SELECT ${SAFE_FILE_COLUMNS} FROM files WHERE id = ?`)
+    .get(result.lastInsertRowid as number);
   if (!record) throw new Error('insertFile: row not found after insert');
   return record;
 }
 
-export function getFileBySha256(sha256: string): FileRecord | undefined {
+export function getFileBySha256(sha256: string): SafeFileRecord | undefined {
+  const db = getDb();
+  return db
+    .prepare<[string], SafeFileRecord>(`SELECT ${SAFE_FILE_COLUMNS} FROM files WHERE sha256 = ?`)
+    .get(sha256);
+}
+
+/** Full record including token_hash — the download route's token-verify step is the only caller. */
+export function getFileBySha256ForAuth(sha256: string): FileRecord | undefined {
   const db = getDb();
   return db.prepare<[string], FileRecord>('SELECT * FROM files WHERE sha256 = ?').get(sha256);
 }
 
-export function getFileById(id: number): FileRecord | undefined {
+export function getFileById(id: number): SafeFileRecord | undefined {
   const db = getDb();
-  return db.prepare<[number], FileRecord>('SELECT * FROM files WHERE id = ?').get(id);
+  return db
+    .prepare<[number], SafeFileRecord>(`SELECT ${SAFE_FILE_COLUMNS} FROM files WHERE id = ?`)
+    .get(id);
 }
 
 export function logDownload(fileId: number): void {
@@ -275,12 +310,12 @@ export function getDownloadLogCount(fileId: number): number {
   return row?.count ?? 0;
 }
 
-export function listFiles(limit = 500): (FileRecord & { download_count: number })[] {
+export function listFiles(limit = 500): (SafeFileRecord & { download_count: number })[] {
   const db = getDb();
   // Explicit column list excludes token_hash — it is never needed for listing
   // and should not transit in-process memory unnecessarily.
   return db
-    .prepare<[number], FileRecord & { download_count: number }>(
+    .prepare<[number], SafeFileRecord & { download_count: number }>(
       `SELECT f.id, f.filename, f.original_name, f.sha256, f.size, f.content_type,
               f.gcs_key, f.expires_at, f.uploaded_at, f.uploaded_by,
               COUNT(dl.id) as download_count
@@ -308,11 +343,11 @@ export function deleteFile(id: number): void {
   db.prepare<[number]>('DELETE FROM files WHERE id = ?').run(id);
 }
 
-export function getExpiredFiles(): FileRecord[] {
+export function getExpiredFiles(): SafeFileRecord[] {
   const db = getDb();
   return db
-    .prepare<[], FileRecord>(
-      'SELECT * FROM files WHERE expires_at IS NOT NULL AND expires_at < unixepoch() ORDER BY expires_at ASC',
+    .prepare<[], SafeFileRecord>(
+      `SELECT ${SAFE_FILE_COLUMNS} FROM files WHERE expires_at IS NOT NULL AND expires_at < unixepoch() ORDER BY expires_at ASC`,
     )
     .all();
 }
@@ -391,6 +426,12 @@ interface DbUserRow {
   created_at: number;
 }
 
+// Raw row shape for the safe projection — same as DbUserRow minus password_hash.
+type DbSafeUserRow = Omit<DbUserRow, 'password_hash'>;
+
+// Explicit column list shared by every getter that must not select password_hash.
+const SAFE_USER_COLUMNS = 'id, username, email, auth_provider, permissions, created_at';
+
 function parseUser(row: DbUserRow): User {
   return {
     ...row,
@@ -399,7 +440,24 @@ function parseUser(row: DbUserRow): User {
   };
 }
 
-export function getUserByUsername(username: string): User | undefined {
+function parseSafeUser(row: DbSafeUserRow): SafeUser {
+  return {
+    ...row,
+    auth_provider: row.auth_provider as 'credentials' | 'oidc',
+    permissions: JSON.parse(row.permissions) as Permission[],
+  };
+}
+
+export function getUserByUsername(username: string): SafeUser | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<[string], DbSafeUserRow>(`SELECT ${SAFE_USER_COLUMNS} FROM users WHERE username = ?`)
+    .get(username);
+  return row ? parseSafeUser(row) : undefined;
+}
+
+/** Full row including password_hash — the credentials authorize() path is the only caller. */
+export function getUserByUsernameForAuth(username: string): User | undefined {
   const db = getDb();
   const row = db
     .prepare<[string], DbUserRow>('SELECT * FROM users WHERE username = ?')
@@ -407,7 +465,16 @@ export function getUserByUsername(username: string): User | undefined {
   return row ? parseUser(row) : undefined;
 }
 
-export function getUserById(id: number): User | undefined {
+export function getUserById(id: number): SafeUser | undefined {
+  const db = getDb();
+  const row = db
+    .prepare<[number], DbSafeUserRow>(`SELECT ${SAFE_USER_COLUMNS} FROM users WHERE id = ?`)
+    .get(id);
+  return row ? parseSafeUser(row) : undefined;
+}
+
+/** Full row including password_hash — PATCH /api/account's verify/change flow is the only caller. */
+export function getUserByIdForAuth(id: number): User | undefined {
   const db = getDb();
   const row = db
     .prepare<[number], DbUserRow>('SELECT * FROM users WHERE id = ?')
@@ -415,17 +482,19 @@ export function getUserById(id: number): User | undefined {
   return row ? parseUser(row) : undefined;
 }
 
-export function listUsers(): User[] {
+export function listUsers(): SafeUser[] {
   const db = getDb();
-  const rows = db.prepare<[], DbUserRow>('SELECT * FROM users ORDER BY id ASC').all();
-  return rows.map(parseUser);
+  const rows = db
+    .prepare<[], DbSafeUserRow>(`SELECT ${SAFE_USER_COLUMNS} FROM users ORDER BY id ASC`)
+    .all();
+  return rows.map(parseSafeUser);
 }
 
 export function createUser(data: {
   username: string;
   password_hash: string;
   permissions: Permission[];
-}): User {
+}): SafeUser {
   const db = getDb();
   const result = db
     .prepare<[string, string, string]>(
@@ -469,16 +538,16 @@ export function deleteUser(id: number): void {
   db.prepare<[number]>('DELETE FROM users WHERE id = ?').run(id);
 }
 
-export function getUserByEmail(email: string): User | undefined {
+export function getUserByEmail(email: string): SafeUser | undefined {
   const db = getDb();
   const row = db
-    .prepare<[string], DbUserRow>('SELECT * FROM users WHERE email = ?')
+    .prepare<[string], DbSafeUserRow>(`SELECT ${SAFE_USER_COLUMNS} FROM users WHERE email = ?`)
     .get(email);
-  return row ? parseUser(row) : undefined;
+  return row ? parseSafeUser(row) : undefined;
 }
 
 /** Alias for getUserByEmail — used by jwt callback and OIDC helpers. */
-export function getOidcUserByEmail(email: string): User | undefined {
+export function getOidcUserByEmail(email: string): SafeUser | undefined {
   return getUserByEmail(email);
 }
 
@@ -491,7 +560,7 @@ export function upsertOidcUser(
   email: string,
   name: string,
   permissions: Permission[],
-): User {
+): SafeUser {
   const db = getDb();
   db
     .prepare<[string, string, string]>(
@@ -577,11 +646,12 @@ export function getPendingRequestCount(): number {
   return row?.count ?? 0;
 }
 
-export function getGroupsForFile(fileId: number): FileGroup[] {
+export function getGroupsForFile(fileId: number): SafeFileGroup[] {
   const db = getDb();
   return db
-    .prepare<[number], FileGroup>(
-      `SELECT g.* FROM file_groups g
+    .prepare<[number], SafeFileGroup>(
+      `SELECT g.id, g.name, g.slug, g.expires_at, g.created_by, g.created_at
+       FROM file_groups g
        INNER JOIN file_group_members m ON m.group_id = g.id
        WHERE m.file_id = ?
        ORDER BY g.name ASC`,
@@ -598,6 +668,9 @@ export function isValidSlug(s: string): boolean {
 
 type InsertGroupData = Omit<FileGroup, 'id' | 'created_at'>;
 
+// Explicit column list shared by every getter that must not select token_hash.
+const SAFE_GROUP_COLUMNS = 'id, name, slug, expires_at, created_by, created_at';
+
 export function insertGroup(data: InsertGroupData): FileGroup {
   const db = getDb();
   const result = db
@@ -613,25 +686,44 @@ export function insertGroup(data: InsertGroupData): FileGroup {
   return record;
 }
 
-export function getGroupBySlug(slug: string): FileGroup | undefined {
+export function getGroupBySlug(slug: string): SafeFileGroup | undefined {
+  const db = getDb();
+  return db
+    .prepare<[string], SafeFileGroup>(`SELECT ${SAFE_GROUP_COLUMNS} FROM file_groups WHERE slug = ?`)
+    .get(slug);
+}
+
+/** Full record including token_hash — the group-download route's token-verify step is the only caller. */
+export function getGroupBySlugForAuth(slug: string): FileGroup | undefined {
   const db = getDb();
   return db
     .prepare<[string], FileGroup>('SELECT * FROM file_groups WHERE slug = ?')
     .get(slug);
 }
 
-export function getGroupById(id: number): FileGroup | undefined {
+export function getGroupById(id: number): SafeFileGroup | undefined {
   const db = getDb();
   return db
-    .prepare<[number], FileGroup>('SELECT * FROM file_groups WHERE id = ?')
+    .prepare<[number], SafeFileGroup>(`SELECT ${SAFE_GROUP_COLUMNS} FROM file_groups WHERE id = ?`)
     .get(id);
 }
 
-export function listGroups(): (FileGroup & { member_count: number })[] {
+/** Projection for the anonymous pre-token group page — name and expiry only. */
+export function getGroupNameBySlug(slug: string): { name: string; expires_at: number | null } | undefined {
   const db = getDb();
   return db
-    .prepare<[], FileGroup & { member_count: number }>(
-      `SELECT g.*, COUNT(m.file_id) as member_count
+    .prepare<[string], { name: string; expires_at: number | null }>(
+      'SELECT name, expires_at FROM file_groups WHERE slug = ?',
+    )
+    .get(slug);
+}
+
+export function listGroups(): (SafeFileGroup & { member_count: number })[] {
+  const db = getDb();
+  return db
+    .prepare<[], SafeFileGroup & { member_count: number }>(
+      `SELECT g.id, g.name, g.slug, g.expires_at, g.created_by, g.created_at,
+              COUNT(m.file_id) as member_count
        FROM file_groups g
        LEFT JOIN file_group_members m ON m.group_id = g.id
        GROUP BY g.id
@@ -681,11 +773,13 @@ export function removeFileFromGroup(groupId: number, fileId: number): void {
     .run(groupId, fileId);
 }
 
-export function listGroupFiles(groupId: number): FileRecord[] {
+export function listGroupFiles(groupId: number): SafeFileRecord[] {
   const db = getDb();
   return db
-    .prepare<[number], FileRecord>(
-      `SELECT f.* FROM files f
+    .prepare<[number], SafeFileRecord>(
+      `SELECT f.id, f.filename, f.original_name, f.sha256, f.size, f.content_type,
+              f.gcs_key, f.expires_at, f.uploaded_at, f.uploaded_by
+       FROM files f
        INNER JOIN file_group_members m ON m.file_id = f.id
        WHERE m.group_id = ?
        ORDER BY m.added_at ASC`,
@@ -693,19 +787,9 @@ export function listGroupFiles(groupId: number): FileRecord[] {
     .all(groupId);
 }
 
-export function getGroupWithFiles(slug: string): FileGroupWithFiles | undefined {
-  const db = getDb();
-  const group = db
-    .prepare<[string], FileGroup>('SELECT * FROM file_groups WHERE slug = ?')
-    .get(slug);
+export function getGroupWithFiles(slug: string): SafeFileGroupWithFiles | undefined {
+  const group = getGroupBySlug(slug);
   if (!group) return undefined;
-  const files = db
-    .prepare<[number], FileRecord>(
-      `SELECT f.* FROM files f
-       INNER JOIN file_group_members m ON m.file_id = f.id
-       WHERE m.group_id = ?
-       ORDER BY m.added_at ASC`,
-    )
-    .all(group.id);
+  const files = listGroupFiles(group.id);
   return { ...group, files };
 }

@@ -33,16 +33,24 @@ vi.mock('@/lib/db', () => ({
 import { getIsAdmin } from '@/lib/admin-auth';
 import * as db from '@/lib/db';
 
+// Mirrors the real safe-projection shape (no token_hash) returned by
+// getGroupBySlug()/listGroups() — those are the only functions the admin
+// group routes call.
 const FAKE_GROUP = {
   id: 1,
   name: 'Test Group',
   slug: 'test-group',
-  token_hash: '$2b$10$hashed',
   expires_at: null,
   created_by: 'admin',
   created_at: 1000000,
 };
 
+// insertGroup() is deliberately NOT a safe projection (its only caller already
+// holds the plaintext token in the same response), so its mock return value
+// still needs token_hash to satisfy the real function's type.
+const FAKE_GROUP_WITH_HASH = { ...FAKE_GROUP, token_hash: '$2b$10$hashed' };
+
+// Mirrors the real safe-projection shape (no token_hash) returned by listGroupFiles().
 const FAKE_FILE = {
   id: 10,
   filename: 'abc.pdf',
@@ -51,7 +59,6 @@ const FAKE_FILE = {
   size: 1024,
   content_type: 'application/pdf',
   gcs_key: 'abc.pdf',
-  token_hash: '$2b$10$x',
   expires_at: null,
   uploaded_at: 1000000,
   uploaded_by: null,
@@ -82,6 +89,8 @@ describe('GET /api/admin/groups', () => {
     const body = await res.json();
     expect(body).toHaveLength(1);
     expect(body[0].slug).toBe('test-group');
+    // No bcrypt hash in the response — listGroups() is a safe projection.
+    expect(JSON.stringify(body)).not.toContain('$2b$');
   });
 
   it('returns 403 when not admin', async () => {
@@ -96,7 +105,7 @@ describe('GET /api/admin/groups', () => {
 
 describe('POST /api/admin/groups', () => {
   it('creates a group and returns token once', async () => {
-    vi.mocked(db.insertGroup).mockReturnValue(FAKE_GROUP);
+    vi.mocked(db.insertGroup).mockReturnValue(FAKE_GROUP_WITH_HASH);
     const { POST } = await import('@/app/api/admin/groups/route');
     const res = await POST(
       adminRequest('POST', 'http://localhost/api/admin/groups', { name: 'Test Group', slug: 'test-group' }) as never,
@@ -150,6 +159,8 @@ describe('GET /api/admin/groups/[slug]', () => {
     const body = await res.json();
     expect(body.slug).toBe('test-group');
     expect(body.files).toHaveLength(1);
+    // No bcrypt hash in the response — getGroupBySlug()/listGroupFiles() are safe projections.
+    expect(JSON.stringify(body)).not.toContain('$2b$');
   });
 
   it('returns 404 for unknown slug', async () => {

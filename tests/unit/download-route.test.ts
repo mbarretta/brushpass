@@ -26,7 +26,7 @@ vi.mock('@/lib/gcs', () => ({
 }));
 
 vi.mock('@/lib/db', () => ({
-  getFileBySha256: vi.fn(),
+  getFileBySha256ForAuth: vi.fn(),
   logDownload: vi.fn(),
 }));
 
@@ -74,7 +74,7 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Not found', phase: 'validation' });
-    expect(vi.mocked((await import('@/lib/db')).getFileBySha256)).not.toHaveBeenCalled();
+    expect(vi.mocked((await import('@/lib/db')).getFileBySha256ForAuth)).not.toHaveBeenCalled();
   });
 
   it('returns 404 for a 63-char hex string (wrong length)', async () => {
@@ -85,7 +85,7 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Not found', phase: 'validation' });
-    expect(vi.mocked((await import('@/lib/db')).getFileBySha256)).not.toHaveBeenCalled();
+    expect(vi.mocked((await import('@/lib/db')).getFileBySha256ForAuth)).not.toHaveBeenCalled();
   });
 });
 
@@ -99,7 +99,7 @@ describe('GET /api/download/[sha256] route handler — signed redirect', () => {
   });
 
   it('returns 302 redirect to signed GCS URL', async () => {
-    vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(
+    vi.mocked((await import('@/lib/db')).getFileBySha256ForAuth).mockReturnValue(
       makeRecord('report.pdf'),
     );
 
@@ -112,7 +112,7 @@ describe('GET /api/download/[sha256] route handler — signed redirect', () => {
   });
 
   it('passes correct originalName and contentType to generateSignedDownloadUrl', async () => {
-    vi.mocked((await import('@/lib/db')).getFileBySha256).mockReturnValue(
+    vi.mocked((await import('@/lib/db')).getFileBySha256ForAuth).mockReturnValue(
       makeRecord('my report 2026.pdf'),
     );
 

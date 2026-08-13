@@ -33,14 +33,13 @@ export default async function AdminUserDetailPage({
     notFound();
   }
 
-  // Never render password_hash
-  const { password_hash: _ph, ...safeUser } = user;
+  // getUserById() already projects out password_hash — no strip needed.
 
   const fields: [string, string][] = [
-    ['ID', String(safeUser.id)],
-    ['Username', safeUser.username],
-    ['Permissions', safeUser.permissions.join(', ') || 'none'],
-    ['Created', formatUnix(safeUser.created_at)],
+    ['ID', String(user.id)],
+    ['Username', user.username],
+    ['Permissions', user.permissions.join(', ') || 'none'],
+    ['Created', formatUnix(user.created_at)],
   ];
 
   return (
@@ -52,7 +51,7 @@ export default async function AdminUserDetailPage({
           </Link>
           <span className="text-zinc-300 dark:text-zinc-700">/</span>
           <span className="text-sm text-zinc-900 dark:text-zinc-100 font-medium">
-            {safeUser.username}
+            {user.username}
           </span>
         </div>
 
@@ -72,9 +71,9 @@ export default async function AdminUserDetailPage({
 
         {/* Mutations (client component) */}
         <AdminUserActions
-          userId={safeUser.id}
-          username={safeUser.username}
-          permissions={safeUser.permissions}
+          userId={user.id}
+          username={user.username}
+          permissions={user.permissions}
         />
       </div>
     </div>
