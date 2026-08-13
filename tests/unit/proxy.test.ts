@@ -27,8 +27,9 @@ vi.mock('next-auth', () => ({
   }),
 }));
 
-import { getRateLimitCategory, isRateLimited, isPublicRoute } from '@/proxy';
+import proxy, { getRateLimitCategory, isRateLimited, isPublicRoute, selfAuthenticatingRoute } from '@/proxy';
 import { mintAgentKey, resolveBearerAuth, AGENT_KEY_ISSUER } from '@/lib/agent-key';
+import type { NextRequest } from 'next/server';
 
 const TEST_SECRET = 'test-proxy-agent-key-secret-value-1234567890';
 
@@ -40,6 +41,31 @@ function requestWithAuth(headerValue: string | null): { headers: { get(name: str
       },
     },
   };
+}
+
+// Builds a minimal fake request satisfying exactly what the default-exported
+// proxy handler reads: nextUrl (a real URL, so .clone()/.searchParams work for
+// the /login redirect branch), .auth (what next-auth's real `auth()` wrapper
+// would decorate onto the request — set directly here since next-auth is
+// mocked to identity above), and .headers.get(). Cast to NextRequest for the
+// handler's parameter type; the handler never touches any other member.
+function makeProxyRequest(
+  pathname: string,
+  opts: { headers?: Record<string, string>; auth?: unknown } = {},
+): NextRequest {
+  const headerMap = opts.headers ?? {};
+  const url = new URL(`http://localhost${pathname}`);
+  const nextUrl = Object.assign(url, { clone: () => new URL(url.href) });
+  return {
+    nextUrl,
+    auth: opts.auth,
+    headers: {
+      get(name: string): string | null {
+        const key = Object.keys(headerMap).find((k) => k.toLowerCase() === name.toLowerCase());
+        return key ? headerMap[key] : null;
+      },
+    },
+  } as unknown as NextRequest;
 }
 
 describe('getRateLimitCategory()', () => {
@@ -61,6 +87,13 @@ describe('getRateLimitCategory()', () => {
     expect(getRateLimitCategory('/api/upload')).toBeNull();
     expect(getRateLimitCategory('/')).toBeNull();
     expect(getRateLimitCategory('/api/agent/device')).toBeNull();
+  });
+
+  it('categorizes /api/cleanup as cleanup, protecting it from unauthenticated hammering', () => {
+    // /api/cleanup is self-authenticating (reachable pre-session), so it must
+    // carry its own rate-limit category rather than relying on cookie auth
+    // having already run.
+    expect(getRateLimitCategory('/api/cleanup')).toBe('cleanup');
   });
 });
 
@@ -91,6 +124,64 @@ describe('isRateLimited()', () => {
     for (let i = 0; i < 1000; i++) {
       expect(isRateLimited('not-a-category', '10.0.2.1')).toBe(false);
     }
+  });
+
+  it('caps the cleanup category per IP', () => {
+    const ip = '10.0.4.1';
+    let limited = false;
+    for (let i = 0; i < 11; i++) {
+      limited = isRateLimited('cleanup', ip);
+    }
+    expect(limited).toBe(true);
+  });
+});
+
+describe('selfAuthenticatingRoute()', () => {
+  it('routes the upload API through the agent-key check', () => {
+    expect(selfAuthenticatingRoute('/api/upload')).toBe('agent-key');
+    expect(selfAuthenticatingRoute('/api/upload/complete')).toBe('agent-key');
+  });
+
+  it('routes exactly /api/cleanup to its own handler check', () => {
+    expect(selfAuthenticatingRoute('/api/cleanup')).toBe('route');
+  });
+
+  it('returns null for everything else, including near-miss paths', () => {
+    expect(selfAuthenticatingRoute('/upload')).toBeNull();
+    expect(selfAuthenticatingRoute('/admin')).toBeNull();
+    expect(selfAuthenticatingRoute('/api/cleanup/extra')).toBeNull();
+    expect(selfAuthenticatingRoute('/api/cleanups')).toBeNull();
+  });
+});
+
+describe('default-exported proxy handler: /api/cleanup self-authentication', () => {
+  // Regression coverage for ac1: selfAuthenticatingRoute() and isPublicRoute()
+  // being correct is not sufficient on its own — the `if (!session)` branch in
+  // the handler has to actually wire selfAuthKind === 'route' to a pass-through
+  // rather than the /login redirect. Exercise the real default export (not just
+  // the pure helpers above) to catch a regression in that wiring.
+  it('passes an unauthenticated /api/cleanup request with an Authorization header through to the handler, without redirecting', async () => {
+    const req = makeProxyRequest('/api/cleanup', {
+      headers: { authorization: 'Bearer sometoken' },
+      auth: null,
+    });
+
+    const res = await proxy(req);
+
+    expect(res.status).not.toBe(307);
+    expect(res.status).not.toBe(308);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('still redirects an unauthenticated /api/cleanup request with NO Authorization header to /login', async () => {
+    // Deny-by-default: /api/cleanup is not in isPublicRoute, so a caller with no
+    // session AND no Authorization header must still be redirected, not let through.
+    const req = makeProxyRequest('/api/cleanup', { auth: null });
+
+    const res = await proxy(req);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login');
   });
 });
 
