@@ -1,7 +1,14 @@
+// This script is invoked directly via `node scripts/bootstrap-admin.js` with
+// no build step (see GCP_DEPLOYMENT_PLAN.md's `gcloud run jobs execute`
+// example) and package.json has no `"type": "module"`, so it must stay
+// CommonJS rather than adopt the ESM `import` syntax the rest of the
+// TypeScript codebase uses via the Next.js/tsc toolchain.
+/* eslint-disable @typescript-eslint/no-require-imports */
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 const dbPath = process.env.DATABASE_PATH || '/data/fileshare.db';
 const username = process.env.ADMIN_USER;

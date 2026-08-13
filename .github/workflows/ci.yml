@@ -46,6 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      # Deliberately node-version 22, not the Dockerfile's Node 25 (Dockerfile:4,17):
+      # 22 has a published better-sqlite3 12.8.0 prebuild, so npm ci fetches a
+      # binary instead of compiling from source on the runner's toolchain.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22" # LTS with a better-sqlite3 prebuild; avoids a from-source compile

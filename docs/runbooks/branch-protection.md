@@ -28,6 +28,49 @@ before the new required contexts existed and will stall waiting for `test` and
 `update-digests` run reopens it against the current required-check set — or push
 an empty commit to its branch to force GitHub to re-evaluate.
 
+## Precondition — `lint` must be GREEN at HEAD, not merely reported
+
+The three preconditions above are necessary but not sufficient. A context
+having *reported* once satisfies GitHub's "context exists" requirement, but if
+that context reports **red** on `main`'s HEAD, requiring it locks out every
+subsequent PR — including the rest of this security-remediation plan's PRs —
+until someone clears the failing lines. This is not a hypothetical: `npm run
+lint` is red at HEAD as of this writing (43 pre-existing errors on
+`main@cb4a2fe`, confirmed by three independent tasks in this plan — see the
+plan's own log). Do not run the `gh api` call below until you have personally
+re-run `npm run lint` against current `main` and it exits 0.
+
+As of this task's own commit, two of those files had no owning task anywhere in
+the remediation plan and were fixed here as a byproduct of getting this task's
+own verification as clean as file-ownership boundaries allow:
+
+- `scripts/bootstrap-admin.js` (4 `no-require-imports` errors — resolved by this
+  commit with a scoped `eslint-disable` and a comment, since the script is
+  invoked directly via `node scripts/bootstrap-admin.js` with no build step and
+  cannot switch to ESM `import` without either renaming the file or flipping
+  `package.json` to `"type": "module"`, either of which is out of scope here).
+- `tests/unit/permission-requests-route.test.ts` (14 `no-explicit-any` errors —
+  resolved by this commit by typing the mocks properly instead of casting).
+
+The remaining lint debt at the time this task landed lived in files each owned
+by a **different**, separately in-flight task in this same remediation plan —
+out of this task's file ownership (`.github/workflows/ci.yml`, `package.json`,
+`docs/runbooks/branch-protection.md`) and, because each of those tasks runs in
+its own isolated git worktree/branch, not fixable from here without duplicating
+work already committed on another branch:
+
+- `src/app/api/cleanup/route.ts` (task "H1", `no-require-imports`)
+- `src/app/g/[slug]/page.tsx` (task "C2b", `react-hooks/purity` on `Date.now()`)
+- `tests/unit/oidc.test.ts` (task "H2/H3/H4/H5", `no-explicit-any`)
+- `tests/unit/upload-route.test.ts` (task "C1", `no-explicit-any`)
+
+Each of those tasks' own plan notes already commits to clearing its file's
+errors as part of its own change. **Before running the `gh api` call below,
+re-run `npm run lint` on current `main` HEAD and confirm it exits 0** — by the
+time every task in this plan has merged it should, but verify rather than
+assume, since a still-open task or a regression would otherwise turn `lint`
+into a silent, permanent lockout the moment it's required.
+
 ## Correction to the source plan: there is no single "CodeQL" context today
 
 The remediation plan that produced this task assumed a stable aggregate
