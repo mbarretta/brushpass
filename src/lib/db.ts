@@ -614,9 +614,15 @@ export function listPendingPermissionRequests(): PermissionRequest[] {
   }));
 }
 
+/**
+ * Approves a permission request by writing the UNION of the user's current
+ * permissions and the newly granted set — never a plain overwrite. Without
+ * this, approving a request for ['upload'] would silently strip an existing
+ * ['admin'] grant the requester already held.
+ */
 export function approvePermissionRequest(
   requestId: number,
-  permissions: Permission[],
+  grantedPermissions: Permission[],
 ): void {
   const db = getDb();
   db.transaction(() => {
@@ -624,9 +630,16 @@ export function approvePermissionRequest(
       .prepare<[number], { user_id: number }>('SELECT user_id FROM permission_requests WHERE id = ?')
       .get(requestId);
     if (!row) return;
+
+    const userRow = db
+      .prepare<[number], { permissions: string }>('SELECT permissions FROM users WHERE id = ?')
+      .get(row.user_id);
+    const existingPermissions = userRow ? (JSON.parse(userRow.permissions) as Permission[]) : [];
+    const unionPermissions = Array.from(new Set([...existingPermissions, ...grantedPermissions]));
+
     db
       .prepare<[string, number]>('UPDATE users SET permissions = ? WHERE id = ?')
-      .run(JSON.stringify(permissions), row.user_id);
+      .run(JSON.stringify(unionPermissions), row.user_id);
     db
       .prepare<[number]>('DELETE FROM permission_requests WHERE id = ?')
       .run(requestId);

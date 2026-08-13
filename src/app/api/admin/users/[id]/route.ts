@@ -2,8 +2,8 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { getUserById, updateUser, deleteUser } from '@/lib/db';
-import { getIsAdmin } from '@/lib/admin-auth';
-import { hashPassword } from '@/lib/token';
+import { getIsAdmin, isValidPermissionsArray } from '@/lib/admin-auth';
+import { hashPassword, validatePassword, validateUsername } from '@/lib/token';
 import { auth } from '@/auth';
 import type { Permission } from '@/types';
 
@@ -69,12 +69,38 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
       if (typeof username !== 'string') {
         return Response.json({ error: 'username must be a string', phase }, { status: 400 });
       }
+      const usernameCheck = validateUsername(username);
+      if (!usernameCheck.ok) {
+        return Response.json({ error: usernameCheck.error, phase }, { status: 400 });
+      }
       patch.username = username;
     }
     if (password !== undefined) {
       if (typeof password !== 'string') {
         return Response.json({ error: 'password must be a string', phase }, { status: 400 });
       }
+
+      // Mirrors /api/account's check: an admin resetting a password must not
+      // silently give an SSO account a local credential that bypasses the
+      // IdP (and whatever MFA it enforces).
+      phase = 'db-lookup';
+      const targetUser = getUserById(numericId);
+      if (!targetUser) {
+        return Response.json({ error: 'User not found', phase }, { status: 404 });
+      }
+      if (targetUser.auth_provider !== 'credentials') {
+        return Response.json(
+          { error: 'Password change is not available for SSO accounts', phase },
+          { status: 400 },
+        );
+      }
+
+      phase = 'password-validate';
+      const passwordCheck = validatePassword(password);
+      if (!passwordCheck.ok) {
+        return Response.json({ error: passwordCheck.error, phase }, { status: 400 });
+      }
+
       phase = 'hash';
       patch.password_hash = await hashPassword(password);
       phase = 'build-patch';
@@ -83,8 +109,7 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<R
       if (!Array.isArray(permissions)) {
         return Response.json({ error: 'permissions must be an array', phase }, { status: 400 });
       }
-      const VALID_PERMISSIONS: Permission[] = ['upload', 'admin'];
-      if (!(permissions as unknown[]).every((p) => VALID_PERMISSIONS.includes(p as Permission))) {
+      if (!isValidPermissionsArray(permissions)) {
         return Response.json(
           { error: 'permissions contains invalid values; allowed: upload, admin', phase },
           { status: 400 },

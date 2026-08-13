@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getDb, createPermissionRequest } from '@/lib/db';
+import { isValidPermissionsArray } from '@/lib/admin-auth';
 import type { Permission } from '@/types';
 
 export async function POST(req: Request) {
@@ -19,11 +20,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const validPermissions: Permission[] = ['upload', 'admin'];
   if (
     !Array.isArray(permissions) ||
     permissions.length === 0 ||
-    !permissions.every((p) => validPermissions.includes(p as Permission))
+    !isValidPermissionsArray(permissions)
   ) {
     return NextResponse.json({ error: 'Invalid permissions' }, { status: 400 });
   }

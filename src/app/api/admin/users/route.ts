@@ -2,8 +2,8 @@ export const runtime = 'nodejs';
 
 import { type NextRequest } from 'next/server';
 import { listUsers, createUser } from '@/lib/db';
-import { getIsAdmin } from '@/lib/admin-auth';
-import { hashPassword } from '@/lib/token';
+import { getIsAdmin, isValidPermissionsArray } from '@/lib/admin-auth';
+import { hashPassword, validatePassword, validateUsername } from '@/lib/token';
 import type { Permission } from '@/types';
 
 export async function GET(_request: NextRequest): Promise<Response> {
@@ -53,8 +53,15 @@ export async function POST(request: NextRequest): Promise<Response> {
         { status: 400 },
       );
     }
-    const VALID_PERMISSIONS: Permission[] = ['upload', 'admin'];
-    if (!(permissions as unknown[]).every((p) => VALID_PERMISSIONS.includes(p as Permission))) {
+    const usernameCheck = validateUsername(username);
+    if (!usernameCheck.ok) {
+      return Response.json({ error: usernameCheck.error, phase: 'body-parse' }, { status: 400 });
+    }
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.ok) {
+      return Response.json({ error: passwordCheck.error, phase: 'body-parse' }, { status: 400 });
+    }
+    if (!isValidPermissionsArray(permissions)) {
       return Response.json(
         { error: 'permissions contains invalid values; allowed: upload, admin', phase: 'body-parse' },
         { status: 400 },
