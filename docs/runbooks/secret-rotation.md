@@ -22,15 +22,31 @@ secret and every agent poll fails until the next deploy. This runbook orders
 every rotation least-disruptive-first and calls out, per step, which owner
 action is required and whether it forces a Cloud Run revision roll.
 
-## Prerequisites — do not rotate anything until both of these are true
+## Prerequisites — do not rotate anything until all of these are true
 
-1. **The state migration is complete and verified.** Follow
+1. **Secret versions are pinned in Terraform (task 11).** Every
+   secret-sourced `env` block in `terraform/cloudrun.tf` — `AUTH_SECRET`,
+   `CLEANUP_SECRET`, the agent OIDC client id/secret, and (once Prerequisite 3
+   below is applied) `AGENT_KEY_SECRET` — must reference an explicit
+   `google_secret_manager_secret_version.*.version` value, never `"latest"`.
+   Confirm with `grep -n 'version = google_secret_manager_secret_version'
+   terraform/cloudrun.tf` before proceeding. This is the mechanism behind
+   every "forces a revision roll" claim in this runbook: with
+   `cloud_run_max_instance_count` pinned to `1`, a warm instance never
+   re-reads `"latest"` on its own, so if any of these env blocks still pointed
+   at `"latest"` instead of a pinned version, rotating the secret in Secret
+   Manager would create a new version but the already-running instance would
+   keep serving the old value indefinitely — no error, no revision roll, just
+   a rotation that silently never took effect. This is already true on `main`
+   as of task 11 (merged before this runbook exists); if you are running this
+   runbook against an older checkout that predates task 11, land that first.
+2. **The state migration is complete and verified.** Follow
    `docs/runbooks/tfstate-migration.md` end to end first, including its own
    Step 5 verification and Step 6 cleanup. Rotating a secret before the
    backend has moved writes the new value straight back into the same local
    plaintext `terraform.tfstate` this whole exercise exists to get away from —
    this runbook does not repeat that migration's steps, only depends on it.
-2. **`AGENT_KEY_SECRET` is set**, decoupling agent-key signing from the
+3. **`AGENT_KEY_SECRET` is set**, decoupling agent-key signing from the
    `AUTH_SECRET` fallback. `src/lib/agent-key.ts` signs every minted agent
    upload key with `process.env.AGENT_KEY_SECRET ?? process.env.AUTH_SECRET`
    — until `AGENT_KEY_SECRET` is set, every live agent key is cryptographically
@@ -62,19 +78,20 @@ action is required and whether it forces a Cloud Run revision roll.
    service template). See "Every rotation below forces a revision roll" for
    what that means operationally before you run it.
 
-Both of the above are prerequisites for **every** step below, not just for
-`AUTH_SECRET`'s step — a rotation attempted before the backend migration
-lands the new secret in the same exposed local state file, and one attempted
-before `AGENT_KEY_SECRET` is set risks the agent-key blast radius on whichever
-rotation touches `AUTH_SECRET`.
+All three of the above are prerequisites for **every** step below, not just
+for `AUTH_SECRET`'s step — a rotation attempted before secret versions are
+pinned may not take effect on the running service at all, one attempted
+before the backend migration lands the new secret in the same exposed local
+state file, and one attempted before `AGENT_KEY_SECRET` is set risks the
+agent-key blast radius on whichever rotation touches `AUTH_SECRET`.
 
 ## Rotation order — least-disruptive first
 
 | Order | Secret | Production blast radius | Owner action | Forces revision roll? |
 |---|---|---|---|---|
-| 1 | `CLEANUP_SECRET` | **None.** The Cloud Scheduler caller authenticates via OIDC (`verifyOidcToken` / `CLEANUP_SCHEDULER_SA`) — `CLEANUP_SECRET` is a manual/local-dev fallback the route checks first (`src/app/api/cleanup/route.ts`'s `secretMatch` branch), not something production traffic depends on. | `terraform apply -replace=random_password.cleanup_secret` (rotate) or a small `.tf` edit (remove entirely — see below) | Yes |
+| 1 | `CLEANUP_SECRET` | **None.** The Cloud Scheduler caller authenticates via OIDC (`verifyOidcToken` / `CLEANUP_SCHEDULER_SA`) — `CLEANUP_SECRET` is a manual/local-dev fallback the route checks first (`src/app/api/cleanup/route.ts`'s `secretMatch` branch), not something production traffic depends on. | `./apply.sh apply -replace=random_password.cleanup_secret` (rotate) or a small `.tf` edit (remove entirely — see below) | Yes |
 | 2 | Agent OIDC client secret | Breaks only the agent device-grant token exchange (`POST /api/agent/device/token`) for in-flight polls once the *old* client is deleted; does not touch interactive login (separate `AUTH_OIDC_*` client) or any active session. | Console (new client) + `.env` edit + `./apply.sh` + verify + Console (delete old client) | Yes |
-| 3 | `AUTH_SECRET` | **Every** session and (if Prerequisite 2 above was skipped) every agent key. Do this in a quiet window. | `terraform apply -replace=random_password.auth_secret` | Yes |
+| 3 | `AUTH_SECRET` | **Every** session and (if Prerequisite 3 above was skipped) every agent key. Do this in a quiet window. | `./apply.sh apply -replace=random_password.auth_secret` | Yes |
 | — | Bootstrap admin credential | N/A — **delete, don't rotate** (see its own section) | In-app password change + `gcloud`/`terraform state rm` + `.tf` edits | Yes (removes env/secret wiring) |
 
 ## Every rotation below forces a revision roll — the GCS-FUSE SQLite risk
@@ -116,8 +133,22 @@ rehearse the mechanics of a Terraform-side rotation before Step 3.
 
 ```bash
 cd terraform
-terraform apply -replace=random_password.cleanup_secret
+./apply.sh plan -replace=random_password.cleanup_secret
+./apply.sh apply -replace=random_password.cleanup_secret   # confirm 'yes' when applying
 ```
+
+Use `./apply.sh`, not a bare `terraform apply` — `./apply.sh` sources
+`common.sh`'s `load_env_tfvars`, which is the only thing that exports
+`TF_VAR_agent_oidc_client_id`, `TF_VAR_agent_oidc_client_secret`, and
+`TF_VAR_agent_key_secret` from `.env` (per `AGENTS.md`'s "Step 2 — Where each
+setting goes" and `terraform/terraform.tfvars.example`, these must stay out of
+`terraform.tfvars`). A bare `terraform apply` sees none of those `TF_VAR_*`
+values, so they fall back to their `""` defaults in `terraform/variables.tf`,
+which flips `local.agent_oidc_enabled` and `local.agent_key_secret_set` to
+`false` in `terraform/secrets.tf` and plans a **destroy** of the agent OIDC
+secrets, the `AGENT_KEY_SECRET` secret, their IAM bindings, and the
+corresponding Cloud Run env blocks — silently re-merging the agent-key blast
+radius this runbook exists to keep separate from `CLEANUP_SECRET`'s.
 
 This regenerates `random_password.cleanup_secret`, which creates a new
 `google_secret_manager_secret_version.cleanup_secret`, which changes the
@@ -184,8 +215,15 @@ Do this in a quiet window and tell any active users to expect to log back in.
 
 ```bash
 cd terraform
-terraform apply -replace=random_password.auth_secret
+./apply.sh plan -replace=random_password.auth_secret
+./apply.sh apply -replace=random_password.auth_secret   # confirm 'yes' when applying
 ```
+
+Use `./apply.sh`, not a bare `terraform apply` — see the explanation in Step 1
+above: without `./apply.sh` sourcing `.env` via `load_env_tfvars`, the agent
+OIDC and `AGENT_KEY_SECRET` `TF_VAR_*` values fall back to `""` and this apply
+would destroy the very `AGENT_KEY_SECRET` secret that Prerequisite 3 just
+created, in the same apply that rotates `AUTH_SECRET`.
 
 This regenerates `random_password.auth_secret` → a new
 `google_secret_manager_secret_version.auth_secret` → the pinned `version`
@@ -221,6 +259,7 @@ bootstrap it existed for has already run.
    gcloud secrets delete fileshare-admin-user --project=PROJECT_ID --quiet
    gcloud secrets delete fileshare-admin-pass --project=PROJECT_ID --quiet
    ```
+   (substitute your `project_id` from `terraform.tfvars`)
 3. **`terraform state rm` (owner action, from `terraform/`):**
    ```bash
    terraform state rm google_secret_manager_secret.admin_user
