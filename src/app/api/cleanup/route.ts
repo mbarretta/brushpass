@@ -45,6 +45,13 @@ async function verifyOidcToken(token: string): Promise<boolean> {
 
 type CleanupResult = { ok: true } | { ok: false; error: string };
 
+// Both the async GCS delete and the synchronous DB row delete get their own
+// try/catch, each returning the failure directly rather than throwing. Promise.all
+// below requires every settled promise to resolve (never reject); letting either
+// throw escape unhandled would reject the whole batch and turn one bad row into
+// an unhandled 500 for the entire cleanup pass instead of one counted error. Two
+// catches (rather than one wrapping both steps) also keeps the logged phase
+// accurate — gcs-delete vs db-delete — for whichever step actually failed.
 async function cleanupExpiredFile(record: FileRecord): Promise<CleanupResult> {
   try {
     await deleteFromGCS(record.gcs_key);
@@ -58,7 +65,15 @@ async function cleanupExpiredFile(record: FileRecord): Promise<CleanupResult> {
     // The object is already gone from GCS — fall through and remove the row
     // so a permanently-missing object isn't retried every hour forever.
   }
-  deleteFile(record.id);
+
+  try {
+    deleteFile(record.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cleanup] phase=db-delete key=%s error=%s', record.gcs_key, msg);
+    return { ok: false, error: `${record.gcs_key}: ${msg}` };
+  }
+
   return { ok: true };
 }
 
@@ -96,18 +111,33 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Give getExpiredDeviceSessions/deleteDeviceSession their first production
-  // caller: TTL-prune the brokered device-grant sessions in the same pass.
+  // Give getExpiredDeviceSessions its first production caller (deleteDeviceSession
+  // already has 11 call sites in the token-poll route): TTL-prune the brokered
+  // device-grant sessions in the same pass. Each deletion is isolated in its own
+  // try/catch — same reasoning as cleanupExpiredFile above — so one bad row can't
+  // throw the whole handler into an unhandled 500.
   const expiredSessions = getExpiredDeviceSessions();
+  let sessionsPruned = 0;
   for (const session of expiredSessions) {
-    deleteDeviceSession(session.poll_token_hash);
+    try {
+      deleteDeviceSession(session.poll_token_hash);
+      sessionsPruned++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        '[cleanup] phase=device-session-prune hash=%s error=%s',
+        session.poll_token_hash,
+        msg,
+      );
+      errors.push(`device-session ${session.poll_token_hash}: ${msg}`);
+    }
   }
 
   console.log(
     '[cleanup] deleted=%d errors=%d device_sessions_pruned=%d',
     deleted,
     errors.length,
-    expiredSessions.length,
+    sessionsPruned,
   );
-  return NextResponse.json({ deleted, errors, deviceSessionsPruned: expiredSessions.length });
+  return NextResponse.json({ deleted, errors, deviceSessionsPruned: sessionsPruned });
 }

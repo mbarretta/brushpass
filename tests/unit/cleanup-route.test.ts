@@ -262,5 +262,54 @@ describe('GET /api/cleanup', () => {
       expect(db.deleteDeviceSession).toHaveBeenCalledWith('hash-2');
       expect(db.deleteDeviceSession).toHaveBeenCalledTimes(2);
     });
+
+    it('isolates a synchronous deleteFile throw to one record instead of failing the whole pass', async () => {
+      // Regression coverage: cleanupExpiredFile's try/catch must wrap the
+      // synchronous deleteFile(record.id) call too, not just the async GCS
+      // delete — otherwise one bad row rejects the Promise.all batch and the
+      // handler 500s instead of counting a single error.
+      const db = await import('@/lib/db');
+      const gcs = await import('@/lib/gcs');
+      const broken = makeFileRecord({ id: 1, gcs_key: 'db-broken' });
+      const ok = makeFileRecord({ id: 2, gcs_key: 'ok' });
+      vi.mocked(db.getExpiredFiles).mockReturnValue([broken, ok]);
+      vi.mocked(gcs.deleteFromGCS).mockResolvedValue(undefined);
+      vi.mocked(db.deleteFile).mockImplementation((id: number) => {
+        if (id === 1) throw new Error('disk full');
+      });
+
+      const { GET } = await import('@/app/api/cleanup/route');
+      const res = await GET(makeRequest({ authorization: 'Bearer local-dev-secret' }));
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.deleted).toBe(1);
+      expect(json.errors).toHaveLength(1);
+      expect(json.errors[0]).toContain('db-broken');
+      expect(db.deleteFile).toHaveBeenCalledWith(2);
+    });
+
+    it('isolates a deleteDeviceSession throw to one session instead of failing the whole pass', async () => {
+      // Regression coverage: the device-session prune loop must not let a
+      // single throw escape and crash the handler into an unhandled 500 —
+      // it should count the failure in `errors` and keep pruning the rest.
+      const db = await import('@/lib/db');
+      vi.mocked(db.getExpiredDeviceSessions).mockReturnValue([
+        makeDeviceSession({ poll_token_hash: 'bad-hash' }),
+        makeDeviceSession({ poll_token_hash: 'good-hash' }),
+      ]);
+      vi.mocked(db.deleteDeviceSession).mockImplementation((hash: string) => {
+        if (hash === 'bad-hash') throw new Error('locked');
+      });
+
+      const { GET } = await import('@/app/api/cleanup/route');
+      const res = await GET(makeRequest({ authorization: 'Bearer local-dev-secret' }));
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.errors.some((e: string) => e.includes('bad-hash'))).toBe(true);
+      expect(json.deviceSessionsPruned).toBe(1);
+      expect(db.deleteDeviceSession).toHaveBeenCalledWith('good-hash');
+    });
   });
 });
