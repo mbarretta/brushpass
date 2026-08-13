@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { SafeFileGroupWithFiles } from '@/types';
+import type { PublicGroupFile } from '@/types';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -10,28 +10,60 @@ function formatBytes(bytes: number): string {
 }
 
 interface GroupPageProps {
-  group: SafeFileGroupWithFiles;
+  name: string;
   slug: string;
 }
 
-export default function GroupPage({ group, slug }: GroupPageProps) {
-  const [token, setToken] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface GroupAccess {
+  name: string;
+  expires_at: number | null;
+  files: PublicGroupFile[];
+}
 
-  function handleSubmit(e: React.FormEvent) {
+export default function GroupPage({ name, slug }: GroupPageProps) {
+  const [token, setToken] = useState('');
+  // The manifest is only ever populated from a successful server response —
+  // there is no client-side "submitted" flag standing in for real access, so
+  // there is nothing to show (and nothing in the initial HTML/RSC payload)
+  // until the token has actually been verified server-side.
+  const [access, setAccess] = useState<GroupAccess | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const t = token.trim();
-    if (!t) return;
+    if (!t || loading) return;
     setError(null);
-    setSubmitted(true);
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/groups/${slug}/access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: t }),
+      });
+      if (res.status === 410) {
+        setError('This file group is no longer available.');
+        return;
+      }
+      if (!res.ok) {
+        setError('Invalid token — please check and try again.');
+        return;
+      }
+      const data = (await res.json()) as GroupAccess;
+      setAccess(data);
+    } catch {
+      setError('Something went wrong — please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleDownload(slug: string, sha256: string, filename: string, token: string) {
+  async function handleDownload(sha256: string, filename: string) {
     // Send token in Authorization header to avoid URL query string exposure
     // (browser history, server logs, Referer headers).
     const res = await fetch(`/api/groups/${slug}/files/${sha256}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token.trim()}` },
     });
     if (!res.ok) {
       setError('Download failed — check your token and try again.');
@@ -54,13 +86,13 @@ export default function GroupPage({ group, slug }: GroupPageProps) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg">
-        {!submitted ? (
+        {!access ? (
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-8">
             <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mb-2 text-center">
-              {group.name}
+              {name}
             </h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 text-center mb-6">
-              {group.files.length} file{group.files.length !== 1 ? 's' : ''} · expires {formatUnix(group.expires_at)}
+              Enter the access token to view this group&apos;s files.
             </p>
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
@@ -86,9 +118,10 @@ export default function GroupPage({ group, slug }: GroupPageProps) {
               )}
               <button
                 type="submit"
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                disabled={loading}
+                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-60"
               >
-                Access Files
+                {loading ? 'Checking…' : 'Access Files'}
               </button>
             </form>
           </div>
@@ -96,24 +129,24 @@ export default function GroupPage({ group, slug }: GroupPageProps) {
           <div className="space-y-4">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-6">
               <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
-                {group.name}
+                {access.name}
               </h1>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {group.files.length} file{group.files.length !== 1 ? 's' : ''} · expires {formatUnix(group.expires_at)}
+                {access.files.length} file{access.files.length !== 1 ? 's' : ''} · expires {formatUnix(access.expires_at)}
               </p>
             </div>
 
-            {group.files.length === 0 ? (
+            {access.files.length === 0 ? (
               <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-8 text-center text-zinc-400 text-sm">
                 No files in this group.
               </div>
             ) : (
               <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-                {group.files.map((file, i) => (
+                {access.files.map((file, i) => (
                   <div
                     key={file.sha256}
                     className={`flex items-center justify-between px-5 py-4 ${
-                      i < group.files.length - 1 ? 'border-b border-zinc-100 dark:border-zinc-800' : ''
+                      i < access.files.length - 1 ? 'border-b border-zinc-100 dark:border-zinc-800' : ''
                     }`}
                   >
                     <div className="min-w-0 flex-1 mr-4">
@@ -125,7 +158,7 @@ export default function GroupPage({ group, slug }: GroupPageProps) {
                       </p>
                     </div>
                     <button
-                      onClick={() => handleDownload(slug, file.sha256, file.original_name, token)}
+                      onClick={() => handleDownload(file.sha256, file.original_name)}
                       className="flex-shrink-0 rounded-lg bg-blue-600 text-white text-sm font-medium px-4 py-1.5 hover:bg-blue-700 transition-colors"
                     >
                       Download
@@ -136,7 +169,7 @@ export default function GroupPage({ group, slug }: GroupPageProps) {
             )}
 
             <button
-              onClick={() => { setSubmitted(false); setToken(''); }}
+              onClick={() => { setAccess(null); setToken(''); setError(null); }}
               className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors w-full text-center"
             >
               ← Enter a different token

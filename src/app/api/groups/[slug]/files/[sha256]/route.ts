@@ -57,6 +57,13 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
       return Response.json({ error: 'File not in group', phase: 'file-lookup' }, { status: 404 });
     }
 
+    // A file's own expiry is independent of the group's — a long-lived group
+    // must not keep serving a member file past its individual expiry.
+    phase = 'file-expiry-check';
+    if (file.expires_at !== null && Math.floor(Date.now() / 1000) > file.expires_at) {
+      return Response.json({ error: 'File has expired', phase: 'file-expiry-check' }, { status: 410 });
+    }
+
     phase = 'gcs-sign';
     const signedUrl = await generateSignedDownloadUrl(
       file.gcs_key,
