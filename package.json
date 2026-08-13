@@ -16,6 +16,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
     "busboy": "^1.6.0",
+    "google-auth-library": "^9.15.1",
     "jose": "^6.2.3",
     "next": "16.2.12",
     "next-auth": "5.0.0-beta.32",
@@ -39,7 +40,7 @@
     "vitest": "^4.1.1"
   },
   "overrides": {
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.23",
     "fast-xml-parser": "^5.7.0",
     "fast-xml-builder": "^1.1.7",
     "@tootallnate/once": "^3.0.1"

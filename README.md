@@ -22,22 +22,11 @@ Both images are rebuilt nightly from source with zero known CVEs at release time
 
 ### npm dependencies (Chainguard Libraries for JavaScript)
 
-All 9 production npm dependencies are available in the [Chainguard Libraries for JavaScript](https://edu.chainguard.dev/chainguard/libraries/javascript/overview/) registry at their exact pinned versions:
-
-| Package | Version | In Chainguard registry |
-|---|---|---|
-| `next` | 16.2.1 | ✅ |
-| `react` / `react-dom` | 19.2.4 | ✅ |
-| `better-sqlite3` | 12.8.0 | ✅ |
-| `@google-cloud/storage` | 7.19.0 | ✅ |
-| `next-auth` | 5.0.0-beta.30 | ✅ |
-| `bcryptjs` | 3.0.3 | ✅ |
-| `busboy` | 1.6.0 | ✅ |
-| `@noble/hashes` | 2.0.1 | ✅ |
+The production npm dependencies in [`package.json`](./package.json) are available in the [Chainguard Libraries for JavaScript](https://edu.chainguard.dev/chainguard/libraries/javascript/overview/) registry at their exact pinned versions. This list is intentionally not duplicated here as a version table — `package.json`'s `dependencies` field is the single source of truth for what's installed and at what version, and a hand-maintained copy goes stale the moment a dependency is bumped (as happened here: this section previously pinned `next` and `next-auth` versions several releases behind what was actually installed).
 
 Chainguard Libraries rebuilds every package from its original source repository in a hardened SLSA L2 build environment rather than downloading pre-compiled artifacts from the public npm registry. Each package ships with Sigstore signatures and SLSA provenance attestations. This eliminates the class of supply-chain attacks where malware is injected into a registry artifact after the legitimate source code was written — [~99% of known malicious npm packages by that vector](https://www.chainguard.dev/unchained/mitigating-malware-in-the-npm-ecosystem-with-chainguard-libraries).
 
-You can verify any installed package with `chainctl libraries verify $(npm config get cache)`.
+You can verify any installed package with `chainctl libraries verify $(npm config get cache)` — note that this repo's `.npmrc` pins installs to the public npm registry (see [Dependency security scanning](#dependency-security-scanning)) so CI never depends on Chainguard registry credentials it doesn't have; to populate the cache from Chainguard Libraries instead for local verification, install with `npm install --registry=https://libraries.cgr.dev/javascript/`.
 
 ---
 
@@ -52,6 +41,7 @@ You can verify any installed package with `chainctl libraries verify $(npm confi
 - [Running in production](#running-in-production)
 - [Deploy to GCP with Terraform](#deploy-to-gcp-with-terraform)
 - [Scheduled cleanup](#scheduled-cleanup)
+- [Dependency security scanning](#dependency-security-scanning)
 - [User management API](#user-management-api)
 
 ---
@@ -587,6 +577,25 @@ systemctl enable --now fileshare-cleanup.timer
 ```
 
 The cleanup job is idempotent — running it more frequently than necessary is safe. Errors deleting individual files (e.g. already-deleted GCS objects) are logged but do not abort the job; the response body includes an `errors` array with per-file failures.
+
+---
+
+## Dependency security scanning
+
+[`.github/dependabot.yml`](.github/dependabot.yml) opens a weekly PR for outdated `npm` dependencies (patch/minor bumps grouped into one PR; majors and security updates opened individually) and for outdated GitHub Actions — the latter matters because this repo pins Actions to a commit SHA, which without Dependabot's `github-actions` ecosystem would mean silently freezing on whatever version was pinned at the time.
+
+**Owner action required — not performed by this repo's automation:** Dependabot *security updates* (auto-opening a PR the moment an alert fires, independent of the weekly schedule) are a separate, per-repo GitHub setting and must be enabled by a repo admin:
+
+```bash
+gh api -X PUT repos/{owner}/{repo}/automated-security-fixes
+```
+
+or via the UI: **Settings → Code security → Dependabot → Security updates**. This is a mutating GitHub API/settings call, so it is intentionally left to the owner rather than scripted here.
+
+**Manual verification after a `next` / `next-auth` upgrade:** because the advisories these upgrades clear cluster on proxy/middleware and session handling, confirm both of the following against a production build (`GCS_BUCKET=build-placeholder npm run build && npm run start`) before merging:
+
+1. An unauthenticated request to a protected path (e.g. `GET /admin`) still gets a `307` redirect to `/login` — the proxy's auth gate is unaffected by the upgrade.
+2. `POST /api/agent/device/start` is still reachable **unauthenticated** — i.e. it is not redirected to `/login` by the proxy — and returns its own handler response. With `AGENT_OIDC_CLIENT_ID` (and the other `AGENT_OIDC_*`/`AUTH_OIDC_*` vars — see [Agent upload-key minting](./AGENTS.md)) configured, that response is `200` with `verification_uri`, `user_code`, and `poll_token` (never the raw `device_code`); without them it fails closed with a `503 Agent device grant not configured`, which is the same fail-closed behavior confirmed at Step 1 above — either way the proxy never turns it into a login redirect.
 
 ---
 
