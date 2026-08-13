@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "env -u __NEXT_PRIVATE_STANDALONE_CONFIG next dev",
     "build": "env -u __NEXT_PRIVATE_STANDALONE_CONFIG next build --webpack",
-    "start": "env -u __NEXT_PRIVATE_STANDALONE_CONFIG next start --webpack",
+    "start": "env -u __NEXT_PRIVATE_STANDALONE_CONFIG next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run"
@@ -15,7 +15,6 @@
     "@noble/hashes": "^2.0.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
-    "busboy": "^1.6.0",
     "google-auth-library": "^9.15.1",
     "jose": "^6.2.3",
     "next": "16.2.12",
@@ -27,7 +26,6 @@
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/busboy": "^1.5.4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
