@@ -27,21 +27,32 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126 # v1.0.191
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # digestabot PRs are authored by octo-sts[bot]; allow it so the
           # review runs instead of aborting on the non-human actor guard.
           allowed_bots: 'octo-sts[bot]'
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # Inline prompt instead of the anthropics/claude-code plugin
+          # marketplace. `plugin_marketplaces` clones an arbitrary git ref of
+          # that repo at run time with no commit pin — the only unpinnable
+          # remote-code fetch anywhere in this repo's CI, in a job that holds
+          # ANTHROPIC_API_KEY. This prompt reproduces the review's scope
+          # in-repo so nothing unpinned is fetched.
+          prompt: |
+            Review pull request ${{ github.repository }}/pull/${{ github.event.pull_request.number }}.
+            Cover: correctness bugs and edge cases; security issues (injection,
+            secret handling, authn/authz, unsafe deserialization); missing or
+            inadequate tests for the changed behavior; dead code, needless
+            complexity, and deviations from existing patterns elsewhere in this
+            codebase. Post the findings as a PR review comment. Do not modify
+            any files.
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 

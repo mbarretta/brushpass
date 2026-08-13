@@ -12,11 +12,22 @@ on:
 
 jobs:
   claude:
+    # Actor allowlist: this repo is public with no required reviews and this
+    # workflow triggers on issue/PR comments, which anyone on the internet can
+    # post. Without this gate, an arbitrary account could comment "@claude ..."
+    # and start a job holding ANTHROPIC_API_KEY and id-token: write before the
+    # action's own write-access check ever runs (that check happens inside the
+    # job, after it has already started and been billed). This repo has
+    # exactly one human collaborator (mbarretta, per docs/runbooks/branch-protection.md);
+    # add a login here if a second trusted collaborator joins.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      contains(fromJSON('["mbarretta"]'), github.actor) &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,13 +37,13 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126 # v1.0.191
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
