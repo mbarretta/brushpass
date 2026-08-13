@@ -84,7 +84,9 @@ async function authorizeDownload(
   ctx.phase = 'token-verify';
   const valid = await verifySecret(token, record?.token_hash ?? null);
   if (!record || !valid) {
-    console.error(
+    // warn, not error: client misbehavior, aligned with the group access and
+    // group-download rejection logs.
+    console.warn(
       '[download] phase=%s error=%s sha256=%s',
       'token-verify',
       record ? 'Invalid token' : 'Unknown sha256',

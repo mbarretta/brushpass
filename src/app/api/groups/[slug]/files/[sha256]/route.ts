@@ -46,6 +46,16 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Res
     phase = 'token-verify';
     const valid = await verifySecret(token, group?.token_hash ?? null);
     if (!group || !valid) {
+      // Same rejection-log posture as the access and download routes, so a
+      // guessing campaign leaves a trace on every token-verify surface. The
+      // slug is unvalidated on this branch — JSON.stringify it so a %0A can't
+      // forge log lines. The response body stays byte-identical for both
+      // branches (non-oracle property pinned by tests).
+      console.warn(
+        '[group-download] phase=token-verify slug=%s result=%s',
+        JSON.stringify(slug),
+        group ? 'invalid_token' : 'unknown_slug',
+      );
       return Response.json({ error: 'Invalid token', phase: 'token-verify' }, { status: 401 });
     }
 

@@ -7,8 +7,9 @@ import { getFileBySha256 } from '@/lib/db';
 import { deriveGcsKey, validateUploadMeta, type UploadMetaInput } from '@/lib/upload-meta';
 import { auth } from '@/auth';
 import { resolveUploadActor } from '@/lib/upload-auth';
+import { readJson } from '@/lib/http';
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<Response> {
   // Authorize via cookie session, falling back to a minted agent Bearer key.
   const session = await resolveUploadActor(await auth(), request);
   const permissions: string[] = session?.user?.permissions ?? [];
@@ -18,7 +19,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const body = await request.json() as UploadMetaInput;
+    const parsed = await readJson(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body as UploadMetaInput;
 
     const validated = validateUploadMeta(body);
     if (!validated.ok) {

@@ -201,6 +201,21 @@ describe('POST /api/upload — prepare phase', () => {
     expect(json).toMatchObject({ error: 'Invalid sha256', phase: 'prepare' });
   });
 
+  it('returns the shared 400 body-parse shape (not a 500) for malformed JSON on prepare', async () => {
+    const raw = new Request('http://localhost/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json{',
+    });
+
+    const { POST } = await import('@/app/api/upload/route');
+    const res = await POST(asRoute(raw));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toMatchObject({ error: 'Invalid JSON body', phase: 'body-parse' });
+  });
+
   it('returns 400 when required fields (filename/contentType/size) are missing', async () => {
     const { POST } = await import('@/app/api/upload/route');
     const res = await POST(asRoute(makeRequest({ sha256: VALID_SHA256 })));
@@ -460,6 +475,24 @@ describe('POST /api/upload/complete', () => {
     // what gets checked for existence.
     const { statObject } = await import('@/lib/gcs');
     expect(vi.mocked(statObject)).toHaveBeenCalledWith(`${VALID_SHA256}.pdf`);
+  });
+
+  it('returns the shared 400 body-parse shape (not a 500) for malformed JSON on complete', async () => {
+    const raw = new Request('http://localhost/api/upload/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json{',
+    });
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(raw));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toMatchObject({ error: 'Invalid JSON body', phase: 'body-parse' });
+
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).not.toHaveBeenCalled();
   });
 
   it('returns 400, deletes the object, and does not call insertFile when the real GCS size exceeds MAX_FILE_SIZE', async () => {
