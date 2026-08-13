@@ -30,6 +30,17 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Re
     phase = 'token-verify';
     const valid = await verifySecret(token, group?.token_hash ?? null);
     if (!group || !valid) {
+      // Log the rejection server-side so a guessing campaign leaves a trace
+      // (every sibling secret-verifying route does the same). The response
+      // body must stay byte-identical for both branches — the slug/outcome
+      // distinction lives only in this log line, never in the response.
+      // JSON.stringify the slug: it is attacker-controlled and unvalidated on
+      // this branch, and a raw %0A would otherwise forge log lines.
+      console.warn(
+        '[group-access] phase=token-verify slug=%s result=%s',
+        JSON.stringify(slug),
+        group ? 'invalid_token' : 'unknown_slug',
+      );
       return Response.json({ error: 'Invalid token' }, { status: 401 });
     }
 

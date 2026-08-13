@@ -18,6 +18,7 @@ import type { Session } from 'next-auth';
 vi.mock('@/lib/gcs', () => ({
   generateSignedUploadUrl: vi.fn(),
   statObject: vi.fn(),
+  deleteFromGCS: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -459,6 +460,28 @@ describe('POST /api/upload/complete', () => {
     // what gets checked for existence.
     const { statObject } = await import('@/lib/gcs');
     expect(vi.mocked(statObject)).toHaveBeenCalledWith(`${VALID_SHA256}.pdf`);
+  });
+
+  it('returns 400, deletes the object, and does not call insertFile when the real GCS size exceeds MAX_FILE_SIZE', async () => {
+    // The signed PUT constrains only Content-Type, so the true object size is
+    // only knowable here — an over-cap object must be rejected against GCS
+    // metadata even though the request body claimed a compliant size.
+    vi.mocked((await import('@/lib/gcs')).statObject).mockResolvedValue({
+      size: 10 * 1024 * 1024 * 1024 + 1, // MAX_FILE_SIZE + 1
+      contentType: 'application/pdf',
+    });
+
+    const { POST } = await import('@/app/api/upload/complete/route');
+    const res = await POST(asRoute(makeCompleteRequest(validCompleteBody)));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toMatchObject({ error: 'Invalid file size', phase: 'complete' });
+
+    const { insertFile } = await import('@/lib/db');
+    expect(vi.mocked(insertFile)).not.toHaveBeenCalled();
+    const { deleteFromGCS } = await import('@/lib/gcs');
+    expect(vi.mocked(deleteFromGCS)).toHaveBeenCalledWith(`${VALID_SHA256}.pdf`);
   });
 
   it('returns 400 and does not call insertFile when the uploaded object is missing from GCS', async () => {

@@ -109,6 +109,23 @@ gcloud storage buckets update gs://pubsec-fileshare-tfstate --versioning
   already in `terraform/main.tf`'s `backend "gcs"` block — if you rename the
   bucket, update `main.tf` first, before Step 3.
 
+> **⚠ If the create returns `409` ("bucket name is not available"), STOP —
+> that is a hard failure, not "I must have created it earlier."** GCS bucket
+> names are globally unique and this one has been visible in a public repo
+> for months; a 409 means someone else may own it, and running Step 4's
+> migration against a bucket you do not own would hand every production
+> secret to whoever does.
+
+**Ownership assertion (mandatory before Step 4).** Step 5's listing check
+succeeds against any bucket you can read, so this is the only step that
+actually proves the bucket lives in *your* project. Both commands must print
+the same project number — if they differ or the second errors, STOP:
+
+```bash
+gcloud projects describe pubsec-se --format='value(projectNumber)'
+gcloud storage buckets describe gs://pubsec-fileshare-tfstate --format='value(projectNumber)'
+```
+
 ## Step 3 — grant access: ONLY the human operator, nobody else
 
 ```bash

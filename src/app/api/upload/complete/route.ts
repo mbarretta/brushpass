@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { insertFile } from '@/lib/db';
 import { generateToken, hashToken } from '@/lib/token';
 import { parseExpiresAt, parseExpiresIn } from '@/lib/expiry';
-import { statObject } from '@/lib/gcs';
-import { deriveGcsKey, validateUploadMeta, type UploadMetaInput } from '@/lib/upload-meta';
+import { statObject, deleteFromGCS } from '@/lib/gcs';
+import { deriveGcsKey, validateUploadMeta, MAX_FILE_SIZE, type UploadMetaInput } from '@/lib/upload-meta';
 import { auth } from '@/auth';
 import { resolveUploadActor } from '@/lib/upload-auth';
 
@@ -44,6 +44,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!objectMeta) {
       console.log('[upload] phase=complete result=object-missing sha256=%s gcsKey=%s', sha256, gcsKey);
       return NextResponse.json({ error: 'Uploaded object not found', phase: 'complete' }, { status: 400 });
+    }
+
+    // The signed PUT URL constrains only Content-Type, so the real object can
+    // be larger than the size the request body claimed (which is all
+    // validateUploadMeta can check). Enforce the cap against GCS's own
+    // metadata before anything is recorded, and best-effort delete the
+    // oversized object so it stops costing storage.
+    if (objectMeta.size > MAX_FILE_SIZE) {
+      console.log('[upload] phase=complete result=size-exceeded sha256=%s size=%d', sha256, objectMeta.size);
+      try {
+        await deleteFromGCS(gcsKey);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[upload] phase=complete result=size-exceeded-cleanup-failed key=%s error=%s', gcsKey, msg);
+      }
+      return NextResponse.json({ error: 'Invalid file size', phase: 'complete' }, { status: 400 });
     }
 
     const uploadedBy = session?.user?.username ?? session?.user?.email ?? null;
