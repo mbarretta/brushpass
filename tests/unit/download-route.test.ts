@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 vi.mock('@/lib/token', () => ({
-  verifyToken: vi.fn().mockResolvedValue(true),
+  verifySecret: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/lib/gcs', () => ({
@@ -61,7 +61,7 @@ function makeRecord(original_name: string) {
 describe('GET /api/download/[sha256] route handler — hex guard', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
-    vi.mocked((await import('@/lib/token')).verifyToken).mockResolvedValue(true);
+    vi.mocked((await import('@/lib/token')).verifySecret).mockResolvedValue(true);
     vi.mocked((await import('@/lib/gcs')).generateSignedDownloadUrl).mockResolvedValue(
       'https://storage.googleapis.com/signed',
     );
@@ -92,7 +92,7 @@ describe('GET /api/download/[sha256] route handler — hex guard', () => {
 describe('GET /api/download/[sha256] route handler — signed redirect', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
-    vi.mocked((await import('@/lib/token')).verifyToken).mockResolvedValue(true);
+    vi.mocked((await import('@/lib/token')).verifySecret).mockResolvedValue(true);
     vi.mocked((await import('@/lib/gcs')).generateSignedDownloadUrl).mockResolvedValue(
       'https://storage.googleapis.com/signed',
     );

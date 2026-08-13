@@ -1,77 +1,16 @@
 import { auth } from '@/auth';
 import { resolveBearerAuth } from '@/lib/agent-key';
+import { getClientIp, getRateLimitCategory, isRateLimited } from '@/lib/throttle';
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-// Simple in-memory sliding window. Safe for Cloud Run single-instance deployment.
-// Keyed by "route-category:ip". Entries expire after the window elapses.
-
-interface RateLimitEntry { count: number; windowStart: number }
-const rateLimitStore = new Map<string, RateLimitEntry>();
-
-const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
-  login:        { max: 10, windowMs: 60_000 },
-  download:     { max: 30, windowMs: 60_000 },
-  account:      { max:  3, windowMs: 60_000 },
-  // /api/cleanup is self-authenticating (see selfAuthenticatingRoute below)
-  // and therefore reachable by an unauthenticated caller; cap it so hammering
-  // it cannot drive verifyOidcToken's outbound fetch to Google's certs.
-  cleanup:      { max: 10, windowMs: 60_000 },
-  // Agent device-grant endpoints. device_start opens a new device session;
-  // device_token is the agent's polling loop, capped per IP here while the
-  // token route additionally enforces the per-poll_token advertised interval.
-  device_start: { max:  5, windowMs: 60_000 },
-  device_token: { max: 30, windowMs: 60_000 },
-};
-
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  );
-}
-
-export function isRateLimited(category: string, ip: string): boolean {
-  const limit = RATE_LIMITS[category];
-  if (!limit) return false;
-
-  const key = `${category}:${ip}`;
-  const now = Date.now();
-  const entry = rateLimitStore.get(key);
-
-  if (!entry || now - entry.windowStart > limit.windowMs) {
-    rateLimitStore.set(key, { count: 1, windowStart: now });
-    return false;
-  }
-
-  entry.count++;
-  if (entry.count > limit.max) return true;
-  return false;
-}
-
-export function getRateLimitCategory(pathname: string): string | null {
-  if (pathname === '/api/auth/callback/credentials') return 'login';
-  if (pathname.startsWith('/api/download/')) return 'download';
-  if (pathname === '/api/account') return 'account';
-  if (pathname === '/api/cleanup') return 'cleanup';
-  if (pathname === '/api/agent/device/start') return 'device_start';
-  if (pathname === '/api/agent/device/token') return 'device_token';
-  return null;
-}
-
-// Periodically clear stale entries to prevent unbounded memory growth.
-// Runs every 5 minutes; safe because Cloud Run is single-instance.
-if (typeof setInterval !== 'undefined') {
-  setInterval(() => {
-    const now = Date.now();
-    const maxWindow = Math.max(...Object.values(RATE_LIMITS).map((l) => l.windowMs));
-    for (const [key, entry] of rateLimitStore) {
-      if (now - entry.windowStart > maxWindow) rateLimitStore.delete(key);
-    }
-  }, 5 * 60_000);
-}
+// The sliding-window limiter, the client-IP resolution and the failed-login
+// lockout all live in @/lib/throttle now, so the Node credentials path can share
+// them (a path-keyed limiter here cannot see a login that arrives on a different
+// transport). Re-exported so existing importers of @/proxy keep working; note
+// that the Edge and Node runtimes each hold their own counter maps — see the
+// header comment in @/lib/throttle.
+export { getRateLimitCategory, isRateLimited };
 
 export function isPublicRoute(pathname: string): boolean {
   // Auth.js own API routes
@@ -105,6 +44,20 @@ export function isPublicRoute(pathname: string): boolean {
   return false;
 }
 
+/**
+ * The two permission gates below are deliberately OPTIMISTIC: they read the
+ * permissions carried in the JWT session cookie, which can be up to
+ * `session.maxAge` old and therefore still assert rights the database has since
+ * revoked.
+ *
+ * That is not a bug to fix here. This proxy runs on the Edge runtime and cannot
+ * import better-sqlite3, so it has no way to re-read the users table. The
+ * authoritative check is the DB-backed one inside each handler and page —
+ * `getIsAdmin()` (@/lib/admin-auth) and `resolveUploadActor()`
+ * (@/lib/upload-auth) — which run in Node and resolve permissions by
+ * `session.user.id`. Treat this layer as a cheap early rejection for the common
+ * case, never as the security boundary.
+ */
 function requiresAdmin(pathname: string): boolean {
   return pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
 }
@@ -141,7 +94,9 @@ export default auth(async function proxy(req) {
   const session = req.auth;
 
   // ── Rate limiting ───────────────────────────────────────────────────────────
-  const rateLimitCategory = getRateLimitCategory(pathname);
+  // Method matters: POST /login is the credentials login (a server action), so
+  // it is capped, while GET /login is just the form and must not be.
+  const rateLimitCategory = getRateLimitCategory(pathname, req.method);
   if (rateLimitCategory) {
     const ip = getClientIp(req);
     if (isRateLimited(rateLimitCategory, ip)) {

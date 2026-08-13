@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import bcrypt from 'bcryptjs';
 import {
   generateToken,
   hashToken,
   verifyToken,
+  verifySecret,
   validatePassword,
   validateUsername,
   MIN_PASSWORD_LENGTH,
@@ -117,5 +119,49 @@ describe('validateUsername()', () => {
   it('rejects a username containing whitespace', () => {
     const result = validateUsername('alice smith');
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('verifySecret()', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns true for the matching secret and its stored hash', async () => {
+    const secret = generateToken();
+    const hash = await hashToken(secret);
+    expect(await verifySecret(secret, hash)).toBe(true);
+  });
+
+  it('returns false for a wrong secret against a real hash', async () => {
+    const hash = await hashToken(generateToken());
+    expect(await verifySecret('not-the-secret', hash)).toBe(false);
+  });
+
+  it('returns false — and still spends exactly one bcrypt compare — when the hash is absent', async () => {
+    // The point of the helper: a missing record must not be a fast path, or the
+    // call site becomes an existence oracle for usernames and group slugs.
+    const compare = vi.spyOn(bcrypt, 'compare');
+
+    expect(await verifySecret('anything', null)).toBe(false);
+    expect(await verifySecret('anything', undefined)).toBe(false);
+    expect(await verifySecret('anything', '')).toBe(false);
+
+    expect(compare).toHaveBeenCalledTimes(3);
+    // Every absent-record call compared against the same fixed, valid-format
+    // bcrypt hash rather than skipping the work.
+    const hashArgs = compare.mock.calls.map((call) => call[1]);
+    expect(new Set(hashArgs).size).toBe(1);
+    expect(hashArgs[0]).toMatch(/^\$2[aby]\$10\$/);
+  });
+
+  it('spends exactly one compare on the present-hash path too', async () => {
+    const hash = await hashToken(generateToken());
+    const compare = vi.spyOn(bcrypt, 'compare');
+
+    await verifySecret('wrong', hash);
+
+    expect(compare).toHaveBeenCalledTimes(1);
+    expect(compare.mock.calls[0][1]).toBe(hash);
   });
 });

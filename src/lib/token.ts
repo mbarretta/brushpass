@@ -19,6 +19,36 @@ export async function verifyToken(token: string, hash: string): Promise<boolean>
 
 export const verifyPassword = verifyToken;
 
+/**
+ * A fixed, valid-format bcrypt hash (cost 10 — the cost {@link hashToken} and
+ * {@link hashPassword} use) with no known matching plaintext. Comparing against
+ * it when the record is absent makes an unknown record and a wrong secret cost
+ * exactly the same work.
+ */
+const DUMMY_HASH = '$2b$10$ldoR1kAaaHJshR1Lfj/HMuI/unzyO2gkzXkRpddg5simrk5FUP9HG';
+
+/**
+ * Constant-work secret verification: performs EXACTLY ONE bcrypt compare
+ * whether or not a stored hash exists.
+ *
+ * Skipping the compare when the record is missing turns every such call site
+ * into an oracle — the fast path (no user / no group / OIDC account with a null
+ * password_hash) is measurably distinguishable from the slow one, which lets an
+ * anonymous prober enumerate usernames and group slugs. Pass the stored hash or
+ * `null`, and this always spends one compare and returns false when the hash
+ * was absent.
+ *
+ * The `hash != null` guard makes the absent case return false structurally
+ * rather than relying on nobody ever finding a preimage of DUMMY_HASH.
+ */
+export async function verifySecret(
+  candidate: string,
+  hash: string | null | undefined,
+): Promise<boolean> {
+  const matches = await bcrypt.compare(candidate, hash != null && hash !== '' ? hash : DUMMY_HASH);
+  return hash != null && hash !== '' && matches;
+}
+
 export type ValidationResult = { ok: true } | { ok: false; error: string };
 
 export const MIN_PASSWORD_LENGTH = 12;
