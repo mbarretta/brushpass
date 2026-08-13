@@ -348,6 +348,10 @@ const config: NextAuthConfig = {
 
   pages: {
     signIn: '/login',
+    // Route auth errors to /login too: AccessDenied (kind 'error', not
+    // 'signIn') otherwise lands on next-auth's built-in /api/auth/error 403
+    // page, so a signInCallback refusal would never reach /login's banner.
+    error: '/login',
   },
 
   providers: [

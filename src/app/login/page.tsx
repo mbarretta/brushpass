@@ -12,7 +12,18 @@ interface LoginPageProps {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const callbackUrl = params.callbackUrl ?? '/';
-  const hasError = params.error === 'CredentialsSignin';
+  // AccessDenied is next-auth's code for a signIn-callback refusal — here,
+  // the OIDC gate rejecting a profile without a verified email / resolvable
+  // domain. Anything else unexpected still gets a generic banner rather than
+  // a silent bounce back to the form.
+  const errorMessage =
+    params.error === 'CredentialsSignin'
+      ? 'Invalid username or password.'
+      : params.error === 'AccessDenied'
+        ? 'Sign-in was refused: your identity provider did not supply a verified email for this account. Contact an administrator.'
+        : params.error
+          ? 'Sign-in failed. Please try again or contact an administrator.'
+          : null;
   const oidcEnabled = Boolean(process.env.AUTH_OIDC_ISSUER);
 
   return (
@@ -20,12 +31,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-8">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mb-6 text-center">Sign in</h1>
 
-        {hasError && (
+        {errorMessage && (
           <div
             role="alert"
             className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-400"
           >
-            Invalid username or password.
+            {errorMessage}
           </div>
         )}
 

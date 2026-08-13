@@ -13,9 +13,14 @@
 # The plan is shown for review and requires confirmation before it is applied.
 #
 # Usage:
-#   ./deploy.sh                # full deploy: build+push image, plan, confirm, apply
+#   ./deploy.sh                # build+push image, plan, confirm, apply
 #   ./deploy.sh --plan         # plan only, no build/push, no apply
 #   ./deploy.sh --yes          # skip the interactive confirmation (CI / non-interactive use)
+#
+# NOTE: terraform now ignores the service's image field (lifecycle
+# ignore_changes — CI owns the image), so the apply below does NOT roll new
+# code. The build+push here only stages :latest for the next CI-driven or
+# ./redeploy.sh rollout; use ./redeploy.sh to actually ship an image.
 
 set -euo pipefail
 
@@ -49,7 +54,10 @@ gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 # ── Terraform init ────────────────────────────────────────────────────────────
 
 echo "==> Initializing Terraform..."
-terraform init -upgrade
+# Plain init, NOT -upgrade: .terraform.lock.hcl is tracked in git and pins
+# provider versions/hashes. Bumping a provider is a deliberate act — run
+# `terraform init -upgrade` by hand and commit the lock-file diff.
+terraform init
 
 # ── Import Artifact Registry repo if it already exists ────────────────────────
 # gcloud run deploy --source creates this repo automatically on a first deploy;
@@ -66,11 +74,15 @@ if ! terraform state show "$AR_RESOURCE" &>/dev/null; then
 fi
 
 # ── Build and push image ──────────────────────────────────────────────────────
+# Skipped under --plan so the flag matches its documented "no build/push"
+# contract — a plan review should not push an image as a side effect.
 
-echo "==> Building and pushing image (linux/amd64)..."
-cd ..
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push .
-cd terraform
+if ! "$PLAN_ONLY"; then
+  echo "==> Building and pushing image (linux/amd64)..."
+  cd ..
+  docker buildx build --platform linux/amd64 -t "$IMAGE" --push .
+  cd terraform
+fi
 
 # ── Plan (written to a mktemp directory — never the repo) ────────────────────
 

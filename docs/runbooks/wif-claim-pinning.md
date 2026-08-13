@@ -104,12 +104,18 @@ jobs:
 
 Trigger it via `workflow_dispatch` on `main` (a `workflow_dispatch` run is not
 a write this document performs — it is the *owner's* action, run by hand).
-Confirm the printed `job_workflow_ref` reads exactly
-`mbarretta/brushpass/.github/workflows/deploy.yml@refs/heads/main`. If it
-doesn't match what's in `terraform/wif.tf`, fix the Terraform string to match
-reality before proceeding — do not fix reality to match a guess. Delete the
-temporary workflow file once confirmed; it has no purpose after this step and
-its `id-token: write` permission is otherwise unused attack surface.
+**What this probe can and cannot confirm:** because the job runs from its own
+temporary file, its printed `job_workflow_ref` will read
+`mbarretta/brushpass/.github/workflows/tmp-confirm-oidc-claims.yml@refs/heads/main`
+— it can NEVER equal deploy.yml's value, so do not compare it against
+`terraform/wif.tf` and do not edit the Terraform string to match it. The probe
+confirms only the claim's FORMAT (the `owner/repo/.github/workflows/<file>@<ref>`
+shape and the exact `refs/heads/main` ref spelling). If you want to see
+deploy.yml's literal value, add the same claims-printing job temporarily to
+`deploy.yml` itself — it already has `workflow_dispatch` — and remove it after
+one run. Delete the temporary probe workflow once done; it has no purpose after
+this step and its `id-token: write` permission is otherwise unused attack
+surface.
 
 ### Step 2 — `terraform plan`, read it, and require in-place update
 

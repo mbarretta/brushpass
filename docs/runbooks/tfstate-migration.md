@@ -5,7 +5,17 @@ init`, no `terraform init -migrate-state`, no `terraform apply`, and no
 `gcloud storage buckets create` have been run as part of producing this
 document or the accompanying `terraform/main.tf` change.** The GCS backend
 block in `main.tf` is live in the Terraform config, but Terraform has not
-been pointed at it yet — that only happens when you run Step 3 below.
+been pointed at it yet — that only happens when you run Step 4 below.
+
+> **⚠ Interim state — the deploy scripts are blocked until you finish this
+> runbook.** From the moment the `main.tf` backend change merged, any
+> `./deploy.sh` run aborts at `terraform init` with "Backend configuration
+> changed" and any `./apply.sh` run aborts with "Backend initialization
+> required". That is deliberate fail-closed behavior, not breakage to route
+> around: do NOT run `terraform init -migrate-state` casually to make the
+> error go away — that is Step 4 of this runbook and must happen only after
+> Steps 1–3 (state backup, bucket creation, IAM grant). Complete the
+> migration before the next deploy.
 
 ## Why this exists
 
@@ -44,8 +54,11 @@ going forward), not as "the compromise is resolved."
 - Confirm you are on a checkout that includes task 11's Terraform correctness
   fixes (`terraform/cloudrun.tf`'s `AUTH_URL` variable, the container image
   `ignore_changes` lifecycle block, pinned secret versions, per-secret IAM) —
-  merged at commit `1657f07` on `main`. `git log --oneline -1 -- terraform/cloudrun.tf`
-  should show that commit or a later one. **If it does not, stop and update
+  merged at commit `1657f07` on `main`. Verify with
+  `git merge-base --is-ancestor 1657f07 HEAD && echo ok` — it must print `ok`.
+  (Don't gate on `git log -1 -- terraform/cloudrun.tf`: history simplification
+  makes a path query print the task's work commit, not the merge commit, so a
+  literal comparison misleads.) **If it does not print `ok`, stop and update
   your checkout before continuing** — see the DO NOT APPLY warning in Step 5.
 
 ## Step 1 — copy the current state OUTSIDE the repo, before touching anything
@@ -152,8 +165,8 @@ terraform state list | wc -l
 As of this writing `terraform state list | wc -l` reports **46** against the
 pre-migration local state (40 resource *blocks* — one of which,
 `google_project_service.apis`, is a 7-way `for_each` over the required API
-list, so it alone accounts for 7 of the 46 lines `state list` prints one per
-*instance*, not per block). The migrate step is a byte-for-byte copy, so the
+list and so alone accounts for 7 of the 46 lines, because `state list` prints
+one line per *instance*, not per block). The migrate step is a byte-for-byte copy, so the
 count after migration must be identical. (Treat "identical to what you had
 before you started" as the invariant that matters, not the literal number
 46 — recompute it yourself against your own pre-migration `terraform state
@@ -243,7 +256,7 @@ drift" plus every task-11 change state has not seen yet):
   warns about, and it means you are not actually on commit `1657f07` or
   later. **STOP. Do not apply.** Re-check the "Before you start" section
   above.
-- `max_instance_count`'s new validation block, `allow_dev_cors_origin`'s new
+- `cloud_run_max_instance_count`'s new validation block, `allow_dev_cors_origin`'s new
   variable, and similar additions from task 11 showing as no-op or
   informational.
 - Expect **exactly one kind of `-/+ forces replacement`**: the two
