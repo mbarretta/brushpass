@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Session } from 'next-auth';
+import type Database from 'better-sqlite3';
 
 // ---------------------------------------------------------------------------
 // Module mocks — hoisted by Vitest before any imports
@@ -25,11 +27,26 @@ vi.mock('@/lib/db', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSession(id = '7') {
-  return { user: { id, name: 'Test', permissions: [] } };
+function makeSession(id = '7'): Session {
+  return {
+    user: { id, username: 'test', email: null, permissions: [] },
+    expires: new Date(Date.now() + 60_000).toISOString(),
+  };
 }
 
-function makeRequest(body: unknown) {
+// `auth` from '@/auth' is typed as an intersection of five call signatures
+// (plain session getter, App Router route wrapper, middleware wrapper, ...) —
+// see node_modules/next-auth/index.d.ts. TypeScript resolves Parameters<T>/
+// ReturnType<T> against the LAST member of that intersection (the middleware
+// overload), so `vi.mocked(auth)` infers a `NextMiddleware` mock instead of
+// the plain `() => Promise<Session | null>` this route actually calls. Cast
+// to the specific overload we're mocking rather than widening to `any`.
+type SessionAuthFn = () => Promise<Session | null>;
+function mockAuthResolvedValue(authFn: unknown, session: Session | null) {
+  vi.mocked(authFn as SessionAuthFn).mockResolvedValue(session);
+}
+
+function makeRequest(body: unknown): Request {
   return new Request('http://localhost/api/permission-requests', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -38,10 +55,10 @@ function makeRequest(body: unknown) {
 }
 
 /** Returns a getDb mock where prepare().get() resolves to `existing`. */
-function mockDb(existing: unknown = null) {
+function mockDb(existing: unknown = null): Database.Database {
   return {
     prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(existing) }),
-  };
+  } as unknown as Database.Database;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,10 +70,10 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 401 when there is no session', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(null as any);
+    mockAuthResolvedValue(auth, null);
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(makeRequest({ permissions: ['upload'] }) as any);
+    const res = await POST(makeRequest({ permissions: ['upload'] }));
 
     expect(res.status).toBe(401);
     const json = await res.json();
@@ -65,14 +82,14 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 201 with { ok: true } for a valid new request', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(makeSession('7') as any);
+    mockAuthResolvedValue(auth, makeSession('7'));
 
     const { getDb, createPermissionRequest } = await import('@/lib/db');
-    vi.mocked(getDb).mockReturnValue(mockDb(null) as any);
+    vi.mocked(getDb).mockReturnValue(mockDb(null));
     vi.mocked(createPermissionRequest).mockImplementation(() => undefined);
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(makeRequest({ permissions: ['upload'] }) as any);
+    const res = await POST(makeRequest({ permissions: ['upload'] }));
 
     expect(res.status).toBe(201);
     const json = await res.json();
@@ -82,12 +99,12 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 400 with { error: "Invalid permissions" } for an empty permissions array', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(makeSession() as any);
+    mockAuthResolvedValue(auth, makeSession());
 
     const { createPermissionRequest } = await import('@/lib/db');
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(makeRequest({ permissions: [] }) as any);
+    const res = await POST(makeRequest({ permissions: [] }));
 
     expect(res.status).toBe(400);
     const json = await res.json();
@@ -97,12 +114,12 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 400 for an invalid permission value', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(makeSession() as any);
+    mockAuthResolvedValue(auth, makeSession());
 
     const { createPermissionRequest } = await import('@/lib/db');
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(makeRequest({ permissions: ['superadmin'] }) as any);
+    const res = await POST(makeRequest({ permissions: ['superadmin'] }));
 
     expect(res.status).toBe(400);
     const json = await res.json();
@@ -112,13 +129,13 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 200 with { ok: true, alreadyPending: true } when a pending request already exists', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(makeSession('7') as any);
+    mockAuthResolvedValue(auth, makeSession('7'));
 
     const { getDb, createPermissionRequest } = await import('@/lib/db');
-    vi.mocked(getDb).mockReturnValue(mockDb({ id: 3 }) as any);
+    vi.mocked(getDb).mockReturnValue(mockDb({ id: 3 }));
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(makeRequest({ permissions: ['upload'] }) as any);
+    const res = await POST(makeRequest({ permissions: ['upload'] }));
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -128,7 +145,7 @@ describe('POST /api/permission-requests', () => {
 
   it('returns 400 for invalid JSON body', async () => {
     const { auth } = await import('@/auth');
-    vi.mocked(auth).mockResolvedValue(makeSession() as any);
+    mockAuthResolvedValue(auth, makeSession());
 
     // Raw non-JSON body with Content-Type: application/json triggers req.json() parse failure
     const req = new Request('http://localhost/api/permission-requests', {
@@ -138,7 +155,7 @@ describe('POST /api/permission-requests', () => {
     });
 
     const { POST } = await import('@/app/api/permission-requests/route');
-    const res = await POST(req as any);
+    const res = await POST(req);
 
     expect(res.status).toBe(400);
     const json = await res.json();
