@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Base image digests pinned 2026-04-09. Update intentionally when patching base images.
 # Refresh with: docker buildx imagetools inspect cgr.dev/barretta/node:25-dev
-FROM cgr.dev/barretta/node:25-dev@sha256:99708b7db089534a92e4e105450d1c2beca736239cd23638551d6c5536e8b381 AS builder
+FROM cgr.dev/barretta/node:26-dev@sha256:d265bc411c45c5e8647b95b9a04cd749f4de6e0a0ecd663c8a64da370c61a793 AS builder
 USER root
 RUN apk add --no-cache gcc make python3
 USER 65532
@@ -24,7 +24,7 @@ RUN npm run build
 FROM builder AS pruner
 RUN npm prune --omit=dev
 
-FROM cgr.dev/barretta/node:25-slim@sha256:66fec8e229bb58ae1e4db43e4deaf1e6ac152c67757f019ddd02a17d2f151ec4 AS runner
+FROM cgr.dev/barretta/node:26-slim@sha256:f3a29b65e4db04445f049a94ee5060b4db87588054dc45368239a0905481edaa AS runner
 USER 65532
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /app/.next ./.next
