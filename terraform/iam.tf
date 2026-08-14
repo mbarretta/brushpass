@@ -117,7 +117,12 @@ locals {
 }
 
 resource "google_secret_manager_secret_iam_member" "fileshare_app_secret_accessor" {
-  for_each  = toset(local.fileshare_app_secret_ids)
+  # nonsensitive(): the list inherits sensitivity from the enablement locals'
+  # conditions on sensitive vars (agent_oidc_client_secret etc.), which count
+  # tolerates but for_each rejects — keys become state addresses. The values
+  # themselves are secret RESOURCE NAMES (e.g. "fileshare-auth-secret"), not
+  # secret material, so exposing them as for_each keys is safe by design.
+  for_each  = toset(nonsensitive(local.fileshare_app_secret_ids))
   project   = var.project_id
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
