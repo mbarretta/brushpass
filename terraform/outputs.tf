@@ -4,8 +4,8 @@ output "service_url" {
 }
 
 output "oidc_callback_url" {
-  description = "Redirect URI to register with your OIDC provider (Google, Okta, etc.)."
-  value       = "${google_cloud_run_v2_service.fileshare.uri}/api/auth/callback/oidc"
+  description = "Redirect URI to register with your OIDC provider (Google, Okta, etc.). Derived from auth_url (the browser-facing base URL next-auth anchors the OAuth flow to) when set; the run.app uri is only correct before auth_url is configured (first-apply bootstrap)."
+  value       = "${coalesce(var.auth_url, google_cloud_run_v2_service.fileshare.uri)}/api/auth/callback/oidc"
 }
 
 output "service_account_email" {
