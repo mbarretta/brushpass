@@ -85,9 +85,8 @@ All configuration is via environment variables. Copy `.env.example` to `.env` fo
 |---|---|
 | `GCS_BUCKET` | Name of the GCS bucket where uploaded files are stored. **Required at startup** — the server will not start without it. |
 | `AUTH_SECRET` | Secret used to sign Auth.js JWT session tokens. Generate with `openssl rand -base64 32`. Must be the same across all instances if you run multiple. |
-| `AUTH_URL` | The canonical base URL of your deployment, e.g. `https://files.example.com`. Used by Auth.js v5 to construct redirect URLs and validate origins. Required in production. |
+| `AUTH_URL` | The canonical base URL of your deployment, e.g. `https://files.example.com`. Used by Auth.js v5 to construct redirect URLs and validate origins. Required in production. Must be the URL users actually browse to (your custom domain, if you have one) — the whole OAuth/SSO flow anchors to it, and a mismatched value breaks the token exchange. |
 | `DATABASE_PATH` | Path to the SQLite database file, e.g. `./data/fileshare.db`. The directory is created automatically. Defaults to `./data/fileshare.db` if unset. |
-| `CLEANUP_SECRET` | Bearer token that protects `GET /api/cleanup`. Generate with `openssl rand -base64 32`. Keep this secret — anyone with it can trigger bulk deletion. |
 
 ### GCS credentials
 
@@ -108,6 +107,12 @@ All three variables must be set together. Setting only some of them disables OID
 | `AUTH_OIDC_CLIENT_ID` | Client ID from your IdP application registration. |
 | `AUTH_OIDC_CLIENT_SECRET` | Client secret from your IdP application registration. |
 | `AUTH_OIDC_ADMIN_DOMAIN` | Email domain whose users automatically receive `["upload", "admin"]` on first OIDC sign-in (e.g. `example.com`). Optional — leave unset to require manual permission grants. |
+
+### Cleanup auth (self-hosted only)
+
+| Variable | Description |
+|---|---|
+| `CLEANUP_SECRET` | Bearer token that protects `GET /api/cleanup` when you drive cleanup yourself (cron, systemd timer). Generate with `openssl rand -base64 32` — anyone with it can trigger bulk deletion. **Not used on the Terraform/Cloud Run deployment**, which authenticates Cloud Scheduler via OIDC instead; leave it unset there and the route fails closed to everything but valid scheduler tokens. |
 
 ### Legacy / compatibility
 
@@ -255,6 +260,8 @@ Leave `AUTH_OIDC_ADMIN_DOMAIN` unset. After the user signs in once (creating the
 ---
 
 ## First admin user
+
+> **Terraform/Cloud Run deployment:** use Step 4 of [Deploy to GCP with Terraform](#deploy-to-gcp-with-terraform) instead — either the SSO admin-domain path (no bootstrap credentials at all) or the one-off bootstrap job. The instructions below are for self-hosted deployments with direct filesystem access to the SQLite database.
 
 There is no seed script. The first admin user must be created via the API before any user can log in to the admin UI.
 
@@ -457,78 +464,140 @@ The app creates the database file and runs schema migrations automatically on fi
 
 ## Deploy to GCP with Terraform
 
-The `terraform/` directory contains the complete infrastructure definition for deploying to GCP Cloud Run. A single script handles everything: Docker build, Artifact Registry setup, all GCP resources, `AUTH_URL` configuration, and the initial admin bootstrap.
+The `terraform/` directory contains the complete infrastructure definition for deploying to GCP Cloud Run: the service (SQLite on a GCS FUSE volume), Secret Manager wiring with per-secret IAM and version-pinned references, an hourly Cloud Scheduler cleanup job authenticated via OIDC (no shared secret), Workload Identity Federation for keyless GitHub Actions deploys, and an optional custom domain (Cloud DNS + domain mapping).
 
 ### Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.6
 - `gcloud` CLI authenticated: `gcloud auth application-default login`
 - Docker with `buildx` support (for cross-platform ARM → AMD64 builds)
+- A GCP project with billing enabled (APIs are enabled by Terraform)
+
+### Step 0 — One-time setup for a new environment
+
+Skip this step if you are working in an environment that has already been deployed.
+
+**a. Create the state bucket.** State lives in GCS (it contains plaintext secrets and needs locking, access control, and durability). Terraform never manages its own backend bucket, so create it by hand:
+
+```bash
+gcloud storage buckets create gs://YOUR-TFSTATE-BUCKET \
+  --project=YOUR_PROJECT --location=YOUR_REGION \
+  --uniform-bucket-level-access --pap
+gcloud storage buckets update gs://YOUR-TFSTATE-BUCKET --versioning
+```
+
+Then point the backend at it in `terraform/main.tf` (`backend "gcs" { bucket = ... }`).
+
+**b. Adapt the environment-specific files.** This repo carries its home environment's values; a new environment must change:
+
+| File | What to change |
+|---|---|
+| `terraform/main.tf` | Backend bucket name (from **a**). |
+| `terraform/dns.tf` | The zone and hostname are literal (`cgr-pubsec.dev`). Edit them for your domain — or delete the file if you don't want a custom domain. The domain mapping requires domain ownership verified in Google Search Console first. |
+| `terraform/terraform.tfvars` | Everything in Step 1, including `github_repository` and `custom_domain` if applicable. |
+| `.github/workflows/deploy.yml` | `PROJECT_ID`, `REGION`, `IMAGE`, `workload_identity_provider`, `service_account` — the last two come from the `workload_identity_provider` and `deployer_service_account_email` Terraform outputs after the first apply. |
+
+**c. Register OAuth clients** (Google Cloud Console → Credentials; skip what you don't use):
+
+- **Interactive SSO login** — a **Web application** client. Authorized redirect URI: `{public URL}/api/auth/callback/oidc` (with a custom domain you know this upfront; otherwise add it after the first apply — it's printed as the `oidc_callback_url` output). Client ID/secret go in `terraform.tfvars` (Step 1).
+- **Agent device-grant flow** (optional) — a **TVs and Limited Input devices** client. Its credentials go in the repo-root `.env`, **not** tfvars — see [AGENTS.md](./AGENTS.md) for the full setup and the `.env`↔tfvars precedence rules.
 
 ### Step 1 — Configure
 
 ```bash
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
-# Fill in: project_id, container_image, bucket names, bootstrap_admin_pass
+# Fill in: project_id, region, container_image, bucket names,
+# oidc_* values, custom_domain / github_repository if applicable.
+# Leave auth_url and cleanup_audience unset for the very first apply.
 ```
 
-### Step 2 — Deploy
+Secrets split by home: the interactive OIDC client ID/secret live in `terraform.tfvars`; agent-flow secrets (`AGENT_OIDC_CLIENT_ID/SECRET`, `AGENT_KEY_SECRET`) live in `.env` and are mapped to `TF_VAR_*` by the deploy scripts. Commit neither file.
+
+> **Fresh environment shortcut:** `revoke_project_secret_accessor = true` can be set from the very first apply — the two-apply migration sequence documented in `iam.tf` only matters when narrowing IAM under an already-running service.
+
+### Step 2 — First apply
 
 ```bash
 ./deploy.sh
 ```
 
-This single script:
-1. Configures Docker auth for Artifact Registry
-2. Imports the AR repo into Terraform state if it already exists
-3. Builds and pushes the image (`linux/amd64`)
-4. Runs `terraform init` and `terraform apply`
-5. Patches `AUTH_URL` onto the service post-creation (via `gcloud run services update`)
-6. Executes the bootstrap job to create the initial admin account
+The script configures Docker auth for Artifact Registry, imports the AR repo into state if it already exists, builds and pushes the image (`linux/amd64`), then plans, shows the plan, and asks for confirmation before applying. Flags: `--plan` (plan only, no build/push, no apply), `--yes` (skip confirmation for CI).
 
-Use `./deploy.sh --plan` to see what Terraform would change without applying.
+Note: Terraform deliberately ignores the service's image field after creation (`lifecycle ignore_changes` — CI owns the image), so later `deploy.sh` runs do not roll new code. Use `./redeploy.sh` to ship an image.
 
-### Step 3 — Clean up bootstrap secrets
+### Step 3 — Anchor the URLs and re-apply
 
-After verifying you can log in at the service URL, remove the temporary admin credentials:
+Cloud Run URLs contain a hash that can't be known before the service exists, so this is always a second apply:
 
 ```bash
-gcloud secrets delete fileshare-admin-user --project=YOUR_PROJECT --quiet
-gcloud secrets delete fileshare-admin-pass --project=YOUR_PROJECT --quiet
-terraform state rm google_secret_manager_secret.admin_user
-terraform state rm google_secret_manager_secret_version.admin_user
-terraform state rm google_secret_manager_secret.admin_pass
-terraform state rm google_secret_manager_secret_version.admin_pass
+terraform output -raw service_url    # → https://fileshare-HASH-REGION.a.run.app
 ```
 
-Then remove the `admin_user`/`admin_pass` resource blocks from `terraform/secrets.tf` and the `ADMIN_USER`/`ADMIN_PASS` env blocks from the bootstrap job in `terraform/cloudrun.tf`.
+In `terraform.tfvars`, set:
 
-> The exact commands are also printed at the end of each `deploy.sh` run.
+- `cleanup_audience` — the run.app URL, exactly as printed. This is the OIDC audience the cleanup route verifies scheduler tokens against; a lifecycle postcondition fails future applies loudly if the service is ever recreated with a new URL.
+- `auth_url` — the **public browser-facing URL**: your custom domain if you mapped one, otherwise the same run.app URL. This is required for SSO to work — Auth.js anchors the entire OAuth flow (redirect URIs, token exchange, error redirects) to it; without it the OAuth legs disagree about the app's origin and Google rejects the token exchange with `redirect_uri_mismatch`.
+
+```bash
+./apply.sh apply    # Terraform only, no image rebuild
+```
+
+### Step 4 — First admin
+
+Two paths, pick one:
+
+- **SSO admin domain (recommended).** Set `oidc_admin_domain` in tfvars — the first user from that email domain to sign in with SSO automatically receives `["upload", "admin"]`. No bootstrap credentials ever exist.
+- **One-off bootstrap job (credentials login).** The Terraform-managed bootstrap job was retired 2026-08-14; run it manually instead. The password is a plaintext env var here, which is acceptable only because you change it in the UI immediately after first login:
+
+  ```bash
+  gcloud run jobs create fileshare-bootstrap \
+    --image=REGION-docker.pkg.dev/PROJECT/cloud-run-source-deploy/fileshare:latest \
+    --region=REGION --project=PROJECT \
+    --service-account=fileshare-app@PROJECT.iam.gserviceaccount.com \
+    --execution-environment=gen2 \
+    --add-volume=name=db,type=cloud-storage,bucket=YOUR_DB_BUCKET \
+    --add-volume-mount=volume=db,mount-path=/data \
+    --set-env-vars=DATABASE_PATH=/data/fileshare.db,ADMIN_USER=admin,ADMIN_PASS=TEMP_PASSWORD \
+    --command=node --args=scripts/bootstrap-admin.js
+  gcloud run jobs execute fileshare-bootstrap --region=REGION --project=PROJECT --wait
+  # Log in, change the password at /admin, then remove the job:
+  gcloud run jobs delete fileshare-bootstrap --region=REGION --project=PROJECT --quiet
+  ```
+
+### Step 5 — Verify
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-PUBLIC-URL/login      # 200
+gcloud scheduler jobs run fileshare-cleanup --project=PROJECT --location=REGION
+# then check the request log shows GET /api/cleanup → 200
+```
+
+If SSO is configured, sign in via the login page's SSO button. If the agent flow is configured, an unauthenticated `POST /api/agent/device/start` should return `200` with `verification_uri`, `user_code`, and `poll_token`.
+
+### CI deploys (GitHub Actions via WIF)
+
+Pushes to `main` deploy automatically through `deploy.yml`: the workflow federates its GitHub OIDC token through the WIF provider (no service-account key anywhere) and is pinned three ways — repository, `refs/heads/main`, and `job_workflow_ref` (only `deploy.yml` itself may deploy, not any other workflow with `id-token: write`). After changing `github_repository` or the workflow values (Step 0b), verify with one manual `gh workflow run deploy.yml --ref main`. See `docs/runbooks/wif-claim-pinning.md` before ever touching `wif.tf` — replacing the provider carries a 30-day soft-delete lockout — and `docs/runbooks/branch-protection.md` for the required-checks setup.
 
 ### Redeployments
 
-For **code-only changes** (no infrastructure updates), use the faster redeploy script — it skips Terraform entirely:
-
-```bash
-./redeploy.sh
-```
-
-For **infrastructure changes** (new env vars, IAM, scaling, etc.), re-run the full deploy:
-
-```bash
-./deploy.sh
-```
+- `./redeploy.sh` — code-only changes: build + push + roll the image, no Terraform.
+- `./apply.sh [plan|apply ...]` — infrastructure/secret changes: Terraform only, no image rebuild.
+- `./deploy.sh` — both (stages the image and applies infrastructure).
 
 ### Notes
 
 - **`max-instances=1`** is enforced at the Terraform level. SQLite on GCS FUSE does not support concurrent writers — do not increase this unless you migrate to Cloud SQL.
-- **Terraform state** contains sensitive values (generated secrets). The default backend is local; switch to a GCS backend for team use (instructions in `terraform/main.tf`).
+- **Terraform state** contains sensitive values (generated secrets) and lives in the GCS backend from Step 0. Never keep local state copies; `terraform.tfvars` and `.env` hold secrets and must never be committed.
+- **Secret rotation:** every secret is wired to the service by a *pinned* secret version, so rotating a value is always a `./apply.sh` (adding a version in the Secret Manager console alone changes nothing). Order and procedures: `docs/runbooks/secret-rotation.md`.
 - **OIDC:** set `oidc_issuer`, `oidc_client_id`, and `oidc_client_secret` in `terraform.tfvars` and re-apply. All three must be non-empty to enable. The exact redirect URI to register with your IdP is printed as the `oidc_callback_url` output after apply. Optionally set `oidc_admin_domain` to auto-grant upload+admin to users from that email domain on first sign-in.
+- **Cleanup auth:** the deployed cleanup route authenticates Cloud Scheduler via OIDC token verification and fails closed — `CLEANUP_SECRET` is not set in this deployment (it remains a local-dev/self-hosted mechanism only).
 
 ---
 
 ## Scheduled cleanup
+
+> **Terraform/Cloud Run deployment:** cleanup is provisioned automatically — a Cloud Scheduler job calls `GET /api/cleanup` hourly with an OIDC token the route verifies against Google's public keys (audience = `CLEANUP_AUDIENCE`). No `CLEANUP_SECRET` is involved. The instructions below are for self-hosted deployments.
 
 The cleanup job deletes expired files from GCS and removes their records from SQLite. It does not run automatically — you must call it on a schedule.
 

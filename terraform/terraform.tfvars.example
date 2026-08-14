@@ -1,7 +1,7 @@
 # Copy this file to terraform.tfvars and fill in all values.
 #
-# IMPORTANT: terraform.tfvars contains sensitive values (bootstrap_admin_pass,
-# oidc_client_secret). Add it to .gitignore — do NOT commit it.
+# IMPORTANT: terraform.tfvars contains sensitive values (oidc_client_secret).
+# Add it to .gitignore — do NOT commit it.
 
 # ── Required ──────────────────────────────────────────────────────────────────
 
@@ -20,10 +20,11 @@ file_bucket_name   = "pubsec-fileshare"
 # The SQLite FUSE volume bucket — always created by Terraform.
 db_bucket_name = "pubsec-fileshare-db"
 
-# Initial admin credentials for the bootstrap job.
-# SENSITIVE — do not commit.
-bootstrap_admin_user = "admin"
-bootstrap_admin_pass = "CHANGE_ME_BEFORE_APPLY"
+# NOTE: the Terraform-managed admin bootstrap (bootstrap_admin_user/_pass and
+# the fileshare-bootstrap job) was retired 2026-08-14. For the first admin in a
+# new environment, use the SSO admin-domain path (oidc_admin_domain below) or
+# the one-off manual job documented in README.md → "Deploy to GCP with
+# Terraform" → Step 4.
 
 # ── OIDC issuer + admin domain (non-secret) ───────────────────────────────────
 # These two are consumed by BOTH interactive OIDC login AND the agent
@@ -48,7 +49,8 @@ bootstrap_admin_pass = "CHANGE_ME_BEFORE_APPLY"
 # ── Optional: interactive OIDC (SSO) login ────────────────────────────────────
 # Enables the "Sign in with SSO" button. Requires oidc_issuer (above) PLUS these
 # two from a "Web application" OAuth client whose authorized redirect URI is
-# {service_url}/api/auth/callback/oidc (printed as the oidc_callback_url output).
+# {auth_url}/api/auth/callback/oidc — i.e. anchored on the public browser-facing
+# URL, custom domain included (printed as the oidc_callback_url output).
 # NOT needed for the agent device-grant flow.
 
 oidc_client_id     = ""   # SENSITIVE — do not commit
@@ -69,26 +71,33 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 #
 # See AGENTS.md for the full setup, including registering the second OAuth client.
 
-# ── AUTH_URL / cleanup audience (self-referential; see variables.tf) ─────────
+# ── AUTH_URL / cleanup audience (see variables.tf for full docs) ─────────────
 # Leave BOTH commented out for the very first apply against a brand-new
 # service — Cloud Run v2 URLs contain a hash that can't be known before the
 # service exists. After the first apply, run `terraform output -raw
-# service_url`, then uncomment and set auth_url to that exact value, and
-# re-apply. From then on, a lifecycle postcondition on the Cloud Run service
-# fails the apply loudly if the live uri and auth_url ever diverge (e.g. the
-# service was replaced and got a new URL hash), instead of silently shipping a
-# stale audience to NextAuth and the cleanup route.
+# service_url`, then set:
+#
+#   - cleanup_audience: the run.app URL, exactly as printed. The OIDC audience
+#     the cleanup route verifies Cloud Scheduler tokens against. A lifecycle
+#     postcondition fails future applies loudly if the live uri ever diverges
+#     from it (service recreated -> new URL hash).
+#   - auth_url: the PUBLIC browser-facing URL — the custom domain if one is
+#     mapped, otherwise the same run.app URL. Required for SSO: Auth.js anchors
+#     the entire OAuth flow to it (without it, the authorization request and
+#     token exchange disagree about the app's origin and Google rejects the
+#     exchange with redirect_uri_mismatch). NOT asserted against the service
+#     uri — a custom domain never matches it.
+#
+# ...then re-apply.
 
-# auth_url = "https://fileshare-abc123-uc.a.run.app"
-
-# Optional: pin the cleanup route's OIDC audience independently of auth_url.
-# Leave unset — the app falls back to auth_url — unless you specifically want
-# the cleanup audience decoupled from AUTH_URL's own lifecycle.
+# auth_url         = "https://fileshare.example.com"
 # cleanup_audience = "https://fileshare-abc123-uc.a.run.app"
 
 # ── Secret Manager IAM migration (two-apply; see the runbook in iam.tf) ──────
 # Leave false until the per-secret secretmanager.secretAccessor bindings have
 # been applied AND a rolled revision has been confirmed to start with them.
+# On a BRAND-NEW environment (nothing running yet), set true from the very
+# first apply — the two-apply sequence only protects an already-live service.
 
 # revoke_project_secret_accessor = false
 
@@ -101,15 +110,19 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 
 # ── Custom domain (optional) ──────────────────────────────────────────────────
 # When set, this hostname is added to the GCS bucket CORS policy so that
-# browser XHR uploads from the custom domain are allowed.
-# Also used by the Cloud Run domain mapping in dns.tf.
+# browser XHR uploads from the custom domain are allowed. Note: the DNS zone
+# and Cloud Run domain mapping themselves live in dns.tf with LITERAL names —
+# a new environment must edit (or delete) that file, not just this variable.
 
-# custom_domain = "fileshare.cgr-pubsec.dev"
+# custom_domain = "fileshare.example.com"
 
 # ── Optional overrides ────────────────────────────────────────────────────────
 
+# owner/repo allowed to deploy via Workload Identity Federation (deploy.yml).
+# Change this when deploying from a fork or a new repository.
+# github_repository = "mbarretta/brushpass"
+
 # cloud_run_service_name = "fileshare"
-# cloud_run_job_name     = "fileshare-bootstrap"
 # cloud_run_memory       = "512Mi"
 # cloud_run_cpu          = "1"
 # artifact_registry_repo = "cloud-run-source-deploy"
