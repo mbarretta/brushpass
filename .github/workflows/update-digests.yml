@@ -20,7 +20,7 @@ jobs:
         with:
           identity: ${{ secrets.CHAINCTL_IDENTITY }}
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Exchange the workflow's OIDC token for a short-lived, repo-scoped GitHub
       # App token per .github/chainguard/digestabot.sts.yaml. Replaces a
@@ -31,7 +31,7 @@ jobs:
           scope: ${{ github.repository }}
           identity: digestabot
 
-      - uses: chainguard-dev/digestabot@afe360aa3b0c29d88844138e8fa0349384398967 # v1.3.1
+      - uses: chainguard-dev/digestabot@33d0b78e580aa0c83fe188eb3dfad6611b662479 # v1.3.2
         id: digestabot
         with:
           token: ${{ steps.octo-sts.outputs.token }}
