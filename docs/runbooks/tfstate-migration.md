@@ -123,8 +123,15 @@ the same project number — if they differ or the second errors, STOP:
 
 ```bash
 gcloud projects describe pubsec-se --format='value(projectNumber)'
-gcloud storage buckets describe gs://pubsec-fileshare-tfstate --format='value(projectNumber)'
+gcloud storage buckets describe gs://pubsec-fileshare-tfstate --raw --format='value(projectNumber)'
 ```
+
+(`--raw` is required — without it, gcloud SDK 571+'s default describe output
+omits the project field entirely and the second command prints an empty
+string, which reads as a false mismatch. Equivalent assertion if `--raw`
+misbehaves on your SDK: `gcloud storage buckets list --project=pubsec-se
+--format='value(name)' | grep -x pubsec-fileshare-tfstate` — the bucket
+appearing in *your* project's own bucket list proves ownership.)
 
 ## Step 3 — grant access: ONLY the human operator, nobody else
 
