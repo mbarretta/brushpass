@@ -33,58 +33,17 @@ resource "google_secret_manager_secret_version" "auth_secret" {
 # manual curl testing via .env); with it unset the handler is OIDC-only and
 # fails closed.
 
-# ── Bootstrap admin credentials (temporary) ───────────────────────────────────
-# These secrets exist so the bootstrap Cloud Run Job can receive ADMIN_USER and
-# ADMIN_PASS via Secret Manager without plaintext env vars.
-#
-# After running the bootstrap job and verifying login, delete them:
-#   gcloud secrets delete fileshare-admin-user --project=PROJECT_ID --quiet
-#   gcloud secrets delete fileshare-admin-pass --project=PROJECT_ID --quiet
-#   terraform state rm google_secret_manager_secret.admin_user
-#   terraform state rm google_secret_manager_secret_version.admin_user
-#   terraform state rm google_secret_manager_secret.admin_pass
-#   terraform state rm google_secret_manager_secret_version.admin_pass
-# Then remove bootstrap_admin_user and bootstrap_admin_pass from terraform.tfvars.
-
-resource "google_secret_manager_secret" "admin_user" {
-  project   = var.project_id
-  secret_id = "fileshare-admin-user"
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "admin_user" {
-  secret      = google_secret_manager_secret.admin_user.id
-  secret_data = var.bootstrap_admin_user
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
-}
-
-resource "google_secret_manager_secret" "admin_pass" {
-  project   = var.project_id
-  secret_id = "fileshare-admin-pass"
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "admin_pass" {
-  secret      = google_secret_manager_secret.admin_pass.id
-  secret_data = var.bootstrap_admin_pass
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
-}
+# ── Bootstrap admin credentials: removed 2026-08-14 ───────────────────────────
+# The one-time bootstrap flow is fully retired. The owner changed the admin
+# password in-app (so the fileshare-admin-user / fileshare-admin-pass secrets
+# held only the dead initial value); the apply that removed these blocks
+# destroyed both secrets, their versions, and their per-secret IAM grants
+# (iam.tf). The fileshare-bootstrap Cloud Run job — created outside Terraform
+# by the former terraform_data.bootstrap local-exec in cloudrun.tf — was
+# deleted with `gcloud run jobs delete`. The job and its trigger had to go
+# with the secrets: it re-executed on every container_image change and would
+# have silently RESET the admin password to the stale secret value.
+# scripts/bootstrap-admin.js survives for local/first-time provisioning.
 
 # ── OIDC secrets (conditional) ────────────────────────────────────────────────
 # Created only when all three OIDC variables are non-empty. Setting any one of

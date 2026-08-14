@@ -98,8 +98,6 @@ locals {
   fileshare_app_secret_ids = concat(
     [
       google_secret_manager_secret.auth_secret.secret_id,
-      google_secret_manager_secret.admin_user.secret_id,
-      google_secret_manager_secret.admin_pass.secret_id,
     ],
     local.oidc_enabled ? [
       google_secret_manager_secret.oidc_client_id[0].secret_id,

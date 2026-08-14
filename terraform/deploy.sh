@@ -125,11 +125,5 @@ if [[ -z "$(tfvar auth_url 2>/dev/null || true)" ]]; then
   echo "    sequence documented on var.auth_url in variables.tf."
   echo ""
 fi
-echo "==> Bootstrap secrets cleanup (run after verifying admin login works):"
-echo "    gcloud secrets delete fileshare-admin-user --project=${PROJECT_ID} --quiet"
-echo "    gcloud secrets delete fileshare-admin-pass --project=${PROJECT_ID} --quiet"
-echo "    terraform state rm google_secret_manager_secret.admin_user"
-echo "    terraform state rm google_secret_manager_secret_version.admin_user"
-echo "    terraform state rm google_secret_manager_secret.admin_pass"
-echo "    terraform state rm google_secret_manager_secret_version.admin_pass"
-echo "    Then remove the admin_user/admin_pass blocks from secrets.tf and cloudrun.tf."
+# Bootstrap admin secrets + job were torn down 2026-08-14 (see secrets.tf);
+# no post-deploy cleanup reminder needed anymore.

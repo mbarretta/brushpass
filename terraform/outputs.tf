@@ -33,11 +33,6 @@ output "docker_push_command" {
   value       = "docker buildx build --platform linux/amd64 -t ${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_registry_repo}/fileshare:latest --push ."
 }
 
-output "bootstrap_job_name" {
-  description = "Name of the Cloud Run bootstrap job (created and executed automatically on first apply)."
-  value       = var.cloud_run_job_name
-}
-
 output "custom_domain_url" {
   description = "Custom domain URL for the fileshare service."
   value       = "https://fileshare.cgr-pubsec.dev"

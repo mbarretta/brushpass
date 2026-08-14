@@ -254,46 +254,10 @@ resource "google_cloud_run_v2_service_iam_member" "allow_unauthenticated" {
   member   = "allUsers"
 }
 
-# ── Bootstrap job: create and execute once ────────────────────────────────────
-# google_cloud_run_v2_job does not support GCS volume mounts in provider v5.x,
-# so we create and execute the job entirely via gcloud CLI.
-# Trigger on container_image so it re-runs if the image changes.
-
-resource "terraform_data" "bootstrap" {
-  triggers_replace = [var.container_image]
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -e
-      if gcloud run jobs describe ${var.cloud_run_job_name} \
-           --region=${var.region} --project=${var.project_id} &>/dev/null 2>&1; then
-        echo "Bootstrap job already exists, skipping create"
-      else
-        gcloud run jobs create ${var.cloud_run_job_name} \
-          --image=${var.container_image} \
-          --region=${var.region} \
-          --project=${var.project_id} \
-          --service-account=${google_service_account.fileshare_app.email} \
-          --execution-environment=gen2 \
-          --add-volume=name=db,type=cloud-storage,bucket=${google_storage_bucket.fileshare_db.name} \
-          --add-volume-mount=volume=db,mount-path=/data \
-          --set-env-vars=DATABASE_PATH=/data/fileshare.db \
-          --set-secrets=ADMIN_USER=fileshare-admin-user:latest,ADMIN_PASS=fileshare-admin-pass:latest \
-          --command=node \
-          --args=scripts/bootstrap-admin.js \
-          --quiet
-      fi
-      gcloud run jobs execute ${var.cloud_run_job_name} \
-        --region=${var.region} --project=${var.project_id} --wait
-    EOT
-  }
-
-  depends_on = [
-    google_cloud_run_v2_service.fileshare,
-    google_project_service.apis,
-    google_secret_manager_secret_version.admin_user,
-    google_secret_manager_secret_version.admin_pass,
-    google_project_iam_member.fileshare_app_secret_accessor,
-    google_secret_manager_secret_iam_member.fileshare_app_secret_accessor,
-  ]
-}
+# ── Bootstrap job: removed 2026-08-14 ─────────────────────────────────────────
+# The terraform_data.bootstrap resource (a local-exec that created and executed
+# the fileshare-bootstrap Cloud Run job) was removed together with the
+# fileshare-admin-user / fileshare-admin-pass secrets — see the teardown record
+# in secrets.tf. It re-ran on every container_image change and would have reset
+# the admin password to the stale secret value now that the owner has changed
+# it in-app.

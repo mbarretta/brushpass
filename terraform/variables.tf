@@ -58,12 +58,6 @@ variable "cloud_run_service_name" {
   description = "Name of the Cloud Run service."
 }
 
-variable "cloud_run_job_name" {
-  type        = string
-  default     = "fileshare-bootstrap"
-  description = "Name of the Cloud Run Job used for first-time admin bootstrapping."
-}
-
 variable "cloud_run_memory" {
   type        = string
   default     = "512Mi"
@@ -199,20 +193,8 @@ variable "revoke_project_secret_accessor" {
   description = "Set true only after (1) the per-secret secretmanager.secretAccessor bindings below have been applied, (2) a new Cloud Run revision has rolled out under them, and (3) that revision has been confirmed to start and read its secrets successfully. Flipping this on the same apply that adds the per-secret bindings removes the project-wide grant before the new bindings are proven to work — see the runbook comment in iam.tf."
 }
 
-# ── Bootstrap admin credentials ───────────────────────────────────────────────
-
-variable "bootstrap_admin_user" {
-  type        = string
-  default     = "admin"
-  sensitive   = true
-  description = "Username for the initial admin account created by the bootstrap job."
-}
-
-variable "bootstrap_admin_pass" {
-  type        = string
-  sensitive   = true
-  description = "Password for the initial admin account. Set before the first apply. Delete the Terraform-managed secrets after bootstrap is verified."
-}
+# Bootstrap admin credential variables (bootstrap_admin_user/_pass) were
+# removed 2026-08-14 along with the bootstrap job and secrets — see secrets.tf.
 
 # ── Custom domain ─────────────────────────────────────────────────────────────
 
