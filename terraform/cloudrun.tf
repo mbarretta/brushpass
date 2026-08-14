@@ -90,9 +90,15 @@ resource "google_cloud_run_v2_service" "fileshare" {
         }
       }
 
-      # AUTH_URL / CLEANUP_AUDIENCE: see the bootstrap sequence documented on
-      # var.auth_url in variables.tf and the postcondition below. Both stay
-      # unset (env vars omitted entirely) until auth_url is set post-bootstrap.
+      # AUTH_URL: the browser-facing base URL (the custom domain when one is
+      # mapped). next-auth uses it to override the request URL in BOTH the
+      # server-action and route-handler code paths — without it the route
+      # handler leg (OAuth token exchange, error redirects) anchors to the
+      # container's internal origin (localhost:8080) and Google rejects the
+      # code exchange with redirect_uri_mismatch. CLEANUP_AUDIENCE: the run.app
+      # URL the cleanup route verifies scheduler OIDC tokens against — asserted
+      # to match self.uri by the postcondition below. See the bootstrap
+      # sequence documented on var.auth_url in variables.tf.
       dynamic "env" {
         for_each = var.auth_url != "" ? [var.auth_url] : []
         content {
@@ -213,17 +219,19 @@ resource "google_cloud_run_v2_service" "fileshare" {
     # revert the running image back to var.container_image.
     ignore_changes = [template[0].containers[0].image]
 
-    # AUTH_URL is a genuine self-reference: the Cloud Run v2 URL contains a hash
-    # that cannot be derived from any other variable, so it cannot be
-    # interpolated into this resource — only asserted against after the fact.
-    # Skipped entirely while auth_url is unset (first-apply bootstrap; see
-    # variables.tf). Once set, any apply where the live uri no longer matches
-    # (e.g. the service was replaced and got a new hash) fails loudly instead of
-    # silently shipping a stale AUTH_URL/CLEANUP_AUDIENCE to NextAuth and the
-    # cleanup route's audience check.
+    # CLEANUP_AUDIENCE is a genuine self-reference: the Cloud Run v2 run.app
+    # URL contains a hash that cannot be derived from any other variable, so it
+    # cannot be interpolated into this resource — only asserted against after
+    # the fact. Skipped entirely while cleanup_audience is unset (first-apply
+    # bootstrap; see variables.tf). Once set, any apply where the live uri no
+    # longer matches (e.g. the service was replaced and got a new hash) fails
+    # loudly instead of silently shipping a stale audience to the cleanup
+    # route's OIDC check. auth_url is deliberately NOT asserted here: it is the
+    # browser-facing base URL and may be a custom domain (e.g.
+    # https://fileshare.cgr-pubsec.dev) that never matches self.uri.
     postcondition {
-      condition     = var.auth_url == "" || self.uri == var.auth_url
-      error_message = "google_cloud_run_v2_service.fileshare.uri (${self.uri}) no longer matches var.auth_url (${var.auth_url}) — the service was likely recreated with a new URL. Update auth_url (and cleanup_audience, if set) in terraform.tfvars to the new uri and re-apply before this service is used; the previous AUTH_URL is now stale."
+      condition     = var.cleanup_audience == "" || self.uri == var.cleanup_audience
+      error_message = "google_cloud_run_v2_service.fileshare.uri (${self.uri}) no longer matches var.cleanup_audience (${var.cleanup_audience}) — the service was likely recreated with a new URL. Update cleanup_audience in terraform.tfvars to the new uri and re-apply; the previous CLEANUP_AUDIENCE is now stale (scheduler.tf re-pins the job's own oidc_token audience automatically)."
     }
   }
 

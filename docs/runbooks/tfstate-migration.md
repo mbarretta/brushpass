@@ -291,8 +291,9 @@ drift" plus every task-11 change state has not seen yet):
   `objectAdmin` -> `objectUser` narrowing landing, not a red flag. Do **not**
   expect a replace anywhere else — most importantly not on
   `google_cloud_run_v2_service.fileshare` itself (a service replace means a
-  new URL hash, which is exactly what `auth_url`'s lifecycle postcondition
-  exists to catch) or on anything in `wif.tf` (unrelated to this diff, but
+  new URL hash, which is exactly what the lifecycle postcondition on the
+  service — originally keyed on `auth_url`, since retargeted to
+  `cleanup_audience` — exists to catch) or on anything in `wif.tf` (unrelated to this diff, but
   see `docs/runbooks/wif-claim-pinning.md` for why replacing that resource
   is dangerous). If you see a `-/+` on anything other than the two bucket
   IAM member resources, stop and understand why before going any further.

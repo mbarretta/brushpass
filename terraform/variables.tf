@@ -93,29 +93,38 @@ variable "auth_url" {
   type        = string
   default     = ""
   description = <<-EOT
-    The Cloud Run service's own public HTTPS URL (e.g. https://fileshare-abc123-uc.a.run.app),
-    emitted as the AUTH_URL env var for NextAuth's trust-host origin and used as the
-    default OIDC audience the cleanup route checks incoming scheduler tokens against
-    (see CLEANUP_AUDIENCE below). Cloud Run v2 service URLs contain a hash that cannot
-    be derived from any other variable, so this cannot be interpolated — it must be
-    supplied here once the service exists.
+    The public browser-facing base URL of the app, emitted as the AUTH_URL env
+    var for NextAuth. Set it to the custom domain when one is mapped (e.g.
+    https://fileshare.cgr-pubsec.dev), otherwise to the service's run.app URL.
+
+    This must be set for interactive SSO to work. next-auth's forwarded-host
+    detection only covers some code paths (server actions); the OAuth callback
+    route handler builds URLs from the raw request URL, whose origin inside the
+    container is localhost:8080. AUTH_URL overrides the request URL in every
+    path, keeping the authorization request and the token exchange on the same
+    redirect_uri — Google rejects the exchange with redirect_uri_mismatch when
+    they differ.
+
+    Unlike cleanup_audience below, this value is NOT asserted against the
+    service's live uri by the postcondition in cloudrun.tf — a custom domain
+    never matches it.
 
     Bootstrap sequence for a brand-new service (leave this "" for the very first apply):
-      1. First apply with auth_url = "" (the default). AUTH_URL/CLEANUP_AUDIENCE are not
-         emitted yet; the postcondition in cloudrun.tf is skipped while auth_url is "".
-      2. Run `terraform output -raw service_url` to read the real URL.
-      3. Set auth_url to that exact value in terraform.tfvars.
-      4. Re-apply. AUTH_URL/CLEANUP_AUDIENCE are now emitted and the postcondition
-         starts enforcing that they match the service's live uri on every future apply
-         — so if the service is ever recreated (new URL hash), the apply fails loudly
-         instead of silently shipping a stale audience to NextAuth and the cleanup route.
+      1. First apply with auth_url = "" and cleanup_audience = "" (the
+         defaults). Neither env var is emitted yet; the postcondition in
+         cloudrun.tf is skipped while cleanup_audience is "".
+      2. Run `terraform output -raw service_url` to read the real run.app URL.
+      3. Set cleanup_audience to that exact value, and auth_url to the public
+         URL users will browse to (the custom domain if one is mapped, else the
+         same run.app URL).
+      4. Re-apply.
   EOT
 }
 
 variable "cleanup_audience" {
   type        = string
   default     = ""
-  description = "Optional independent pin for the cleanup route's OIDC audience check (CLEANUP_AUDIENCE env var), decoupled from AUTH_URL. Leave \"\" to let the app fall back to AUTH_URL (process.env.CLEANUP_AUDIENCE ?? process.env.AUTH_URL) — the default and normally sufficient once auth_url above is set correctly. Set this only if you want the cleanup audience to survive a future change to how/whether AUTH_URL itself is set, independent of the Cloud Scheduler job's own oidc_token audience in scheduler.tf (which stays pinned to the service's live uri)."
+  description = "The OIDC audience the cleanup route checks incoming Cloud Scheduler tokens against (CLEANUP_AUDIENCE env var): the service's own run.app URL, the same value scheduler.tf pins the job's oidc_token audience to. Asserted to match the service's live uri by the postcondition in cloudrun.tf, so a service recreation (new URL hash) fails the apply loudly instead of silently shipping a stale audience. Keep this set whenever auth_url is set: the app's fallback (process.env.CLEANUP_AUDIENCE ?? process.env.AUTH_URL) is wrong for the scheduler once auth_url is a custom domain. Leave \"\" only during first-apply bootstrap (see auth_url above)."
 }
 
 # ── OIDC (optional) ───────────────────────────────────────────────────────────
