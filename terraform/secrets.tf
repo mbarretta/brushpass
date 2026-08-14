@@ -7,11 +7,6 @@ resource "random_password" "auth_secret" {
   special = false
 }
 
-resource "random_password" "cleanup_secret" {
-  length  = 32
-  special = false
-}
-
 # AUTH_SECRET
 
 resource "google_secret_manager_secret" "auth_secret" {
@@ -30,23 +25,13 @@ resource "google_secret_manager_secret_version" "auth_secret" {
   secret_data = random_password.auth_secret.result
 }
 
-# CLEANUP_SECRET
-
-resource "google_secret_manager_secret" "cleanup_secret" {
-  project   = var.project_id
-  secret_id = "fileshare-cleanup-secret"
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "cleanup_secret" {
-  secret      = google_secret_manager_secret.cleanup_secret.id
-  secret_data = random_password.cleanup_secret.result
-}
+# CLEANUP_SECRET: removed from production 2026-08-14 (owner decision, task 4's
+# proposal from the fix-security-remediation cycle). The cleanup route
+# authenticates the Cloud Scheduler job via OIDC (scheduler.tf) — the static
+# bearer credential on a publicly-reachable route served no remaining purpose.
+# The route still honors a CLEANUP_SECRET env var when one is set (local dev /
+# manual curl testing via .env); with it unset the handler is OIDC-only and
+# fails closed.
 
 # ── Bootstrap admin credentials (temporary) ───────────────────────────────────
 # These secrets exist so the bootstrap Cloud Run Job can receive ADMIN_USER and

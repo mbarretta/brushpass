@@ -68,9 +68,11 @@ it should return `200` with a `verification_uri`, `user_code`, and `poll_token`
 
 ## Rotation
 
-Every secret above (plus `AUTH_SECRET` and `CLEANUP_SECRET`) is wired into the
-Cloud Run service by a **pinned** `google_secret_manager_secret_version`
-resource, not `:latest`. Adding a new version out-of-band — via the Cloud
+Every secret above (plus `AUTH_SECRET`) is wired into the Cloud Run service by
+a **pinned** `google_secret_manager_secret_version` resource, not `:latest`.
+(`CLEANUP_SECRET` was removed from production 2026-08-14 — the cleanup route
+authenticates the scheduler via OIDC and fails closed; the env var remains a
+local-dev-only fallback you can set in `.env`.) Adding a new version out-of-band — via the Cloud
 Console or `gcloud secrets versions add` — has **no effect on the running
 service** until Terraform re-applies and updates the pinned version reference,
 which also forces a new Cloud Run revision. Rotating any of these values is

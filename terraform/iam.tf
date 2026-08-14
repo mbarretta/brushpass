@@ -98,7 +98,6 @@ locals {
   fileshare_app_secret_ids = concat(
     [
       google_secret_manager_secret.auth_secret.secret_id,
-      google_secret_manager_secret.cleanup_secret.secret_id,
       google_secret_manager_secret.admin_user.secret_id,
       google_secret_manager_secret.admin_pass.secret_id,
     ],
