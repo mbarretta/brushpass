@@ -16,6 +16,16 @@
       "waves": { "total": 3, "next": null, "done": 3 },
       "note": "Complete: 8 planned tasks + 2 remediation tasks (wave 3) merged to main; security audit clean after remediation (obs1+sec1 resolved). Not pushed — reconcile with origin/main before PR.",
       "verification": "npm run lint && npm test && npm run build"
+    },
+    {
+      "slug": "fix-security-remediation",
+      "title": "Security remediation: close 2 critical + 7 high findings, migrate Terraform state, narrow the CI/CD trust boundary",
+      "mode": "dev",
+      "status": "complete",
+      "created": "2026-08-13T09:20:00-04:00",
+      "waves": { "total": 5, "next": null, "done": 5 },
+      "note": "COMPLETE at ec28ebf: 13 planned tasks + int1/int2/int3 + sec-batch + qual-batch, all Opus-evaluator-PASS; security audit clean after remediating its 3 findings, quality review clean after remediating its 2; 284->510 tests, lint/typecheck/build green. NOT pushed — reconcile with origin/main before PR. Owner-action sequence lives in the four runbooks (tfstate migration -> rotation, branch protection, WIF apply, Dependabot toggle) plus OWNER FLAG log entries; also review the task-13 permission-bypass process finding (.env deny rule). Waves 1-4 are code (tasks 1-7); waves 5-9 are config + runbooks (tasks 8-13). OPERATIONAL BOUNDARY: tasks 11-13, plus the branch-protection, WIF-apply and Dependabot-toggle steps, produce runbooks only — no implementer runs terraform apply, init -migrate-state, a secret rotation, or a gh/gcloud write. Two lockout guards to preserve: the WIF condition change must plan as '~ update in-place', and required PR reviews must stay disabled on this solo repo.",
+      "verification": "npm run lint && npm test && npm run build"
     }
   ]
 }
