@@ -125,6 +125,16 @@ it also signs every user out.
 
 ## Step 1 — `CLEANUP_SECRET`
 
+> **✅ EXECUTED as Option B (removal), 2026-08-14.** The owner chose the
+> standing task-4 proposal: `CLEANUP_SECRET` is removed from production
+> entirely — the `random_password`/secret/version resources, the Cloud Run
+> env block, and the per-secret IAM entry are gone from the Terraform config,
+> and the Secret Manager secret was destroyed by the apply. The route still
+> honors the env var when set locally (`.env`), so the local-dev/manual-curl
+> fallback documented below survives; there is simply no production wiring to
+> rotate anymore. Steps 2–4 are unaffected. The options below are retained
+> for historical context.
+
 No production traffic depends on this value (see the blast-radius table
 above), so it is the safe one to start with and a reasonable place to
 rehearse the mechanics of a Terraform-side rotation before Step 3.

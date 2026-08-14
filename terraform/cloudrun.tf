@@ -126,17 +126,10 @@ resource "google_cloud_run_v2_service" "fileshare" {
         }
       }
 
-      # CLEANUP_SECRET retained for local development / manual curl testing.
-      # Production cleanup is authenticated via OIDC (see scheduler.tf).
-      env {
-        name = "CLEANUP_SECRET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.cleanup_secret.secret_id
-            version = google_secret_manager_secret_version.cleanup_secret.version
-          }
-        }
-      }
+      # CLEANUP_SECRET is deliberately NOT set in production (removed
+      # 2026-08-14): the cleanup route authenticates the scheduler via OIDC
+      # and fails closed with the var unset. Local dev can still set it in
+      # .env for manual curl testing.
 
       env {
         name  = "CLEANUP_SCHEDULER_SA"
@@ -237,7 +230,6 @@ resource "google_cloud_run_v2_service" "fileshare" {
   depends_on = [
     google_project_service.apis,
     google_secret_manager_secret_version.auth_secret,
-    google_secret_manager_secret_version.cleanup_secret,
     google_project_iam_member.fileshare_app_secret_accessor,
     google_secret_manager_secret_iam_member.fileshare_app_secret_accessor,
   ]
