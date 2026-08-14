@@ -1,6 +1,6 @@
 {
   "name": "brushpass",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "env -u __NEXT_PRIVATE_STANDALONE_CONFIG next dev",
