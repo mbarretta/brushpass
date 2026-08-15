@@ -23,6 +23,14 @@ RUN npm run build
 # node_modules yet `next start` still parses next.config.ts and serves `/`).
 FROM builder AS pruner
 RUN npm prune --omit=dev
+# Fail the build if the native modules didn't compile or didn't survive the
+# prune. npm 12 (bundled with Node >= 26) blocks dependency install scripts
+# not covered by package.json's `allowScripts` — with a WARNING and exit 0 —
+# so `npm ci` can "succeed" while silently shipping better-sqlite3 with no
+# compiled binding (exactly what broke every DB route in production on
+# 2026-08-14). unrs-resolver is deliberately NOT allowlisted: it is dev-only
+# lint tooling with a JS fallback and never reaches the runner image.
+RUN node -e "new (require('better-sqlite3'))(':memory:'); require('sharp'); console.log('native modules OK')"
 
 FROM cgr.dev/barretta/node:26-slim@sha256:f3a29b65e4db04445f049a94ee5060b4db87588054dc45368239a0905481edaa AS runner
 USER 65532
