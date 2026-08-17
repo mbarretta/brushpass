@@ -20,7 +20,18 @@ jobs:
         with:
           identity: ${{ secrets.CHAINCTL_IDENTITY }}
 
+      # persist-credentials: false is load-bearing, not hygiene. Otherwise
+      # checkout leaves GITHUB_TOKEN in git config as an
+      # http.https://github.com/.extraheader Authorization header, which git
+      # sends unconditionally — outranking the credential.helper that digestabot
+      # (>= v1.3.2, which pushes with raw `git push` instead of
+      # peter-evans/create-pull-request) loads the octo-sts token into. With only
+      # contents: read above, GitHub then answers the push 403 as
+      # github-actions[bot]; because that is 403 and not 401, git never falls
+      # back to the helper holding the App token.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Exchange the workflow's OIDC token for a short-lived, repo-scoped GitHub
       # App token per .github/chainguard/digestabot.sts.yaml. Replaces a
