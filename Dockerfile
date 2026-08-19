@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Base image digests pinned 2026-04-09. Update intentionally when patching base images.
 # Refresh with: docker buildx imagetools inspect cgr.dev/barretta/node:25-dev
-FROM cgr.dev/barretta/node:26-dev@sha256:4cc4024657dd1423b57f5d27c93c93b3ddb8bd780ab36a9f6da954d728c04f54 AS builder
+FROM cgr.dev/barretta/node:26-dev@sha256:ce637eba5bfabd5e3bcd87a60ddd8373beb5410c4e6917a69742bd78854825cb AS builder
 USER root
 RUN apk add --no-cache gcc make python3
 USER 65532
