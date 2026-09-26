@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Base image digests pinned 2026-04-09. Update intentionally when patching base images.
 # Refresh with: docker buildx imagetools inspect cgr.dev/barretta/node:25-dev
-FROM cgr.dev/barretta/node:26-dev@sha256:b4f154b42dd12ffeb1038c4739815cc64661dc1e2b348857b3391b8ee482bd51 AS builder
+FROM cgr.dev/barretta/node:26-dev@sha256:64156c910dde60978de0217617ba046bd3d9c7223f37a75d7fb5afa6a3a73308 AS builder
 USER root
 RUN apk add --no-cache gcc make python3
 USER 65532
@@ -32,7 +32,7 @@ RUN npm prune --omit=dev
 # lint tooling with a JS fallback and never reaches the runner image.
 RUN node -e "new (require('better-sqlite3'))(':memory:'); require('sharp'); console.log('native modules OK')"
 
-FROM cgr.dev/barretta/node:26-slim@sha256:c50a4e4b5844aed4d90a2562bae2b90cf1f6cdde92f6fcfc8bd9b8dfd6f13f27 AS runner
+FROM cgr.dev/barretta/node:26-slim@sha256:d332afc3a5836ca68a8f1657d0f9348544242c825e8bbfc79221942ed1983f82 AS runner
 USER 65532
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /app/.next ./.next
