@@ -155,7 +155,7 @@
     {
       "id": "2",
       "title": "Remove digestabot and octo-sts references",
-      "status": "in_progress",
+      "status": "complete",
       "depends_on": [
         "1"
       ],
@@ -202,9 +202,38 @@
         }
       ],
       "notes": "Do not edit .github/workflows/ci.yml here; task 1 owns it (including its digestabot comment).",
-      "verdicts": [],
-      "worktree": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-2",
-      "branch": "harness/chore-chainguard-org-latest/task-2"
+      "verdicts": [
+        {
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "constraints": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "no_test_weakening": "PASS",
+          "issues": [
+            "Minor style only"
+          ],
+          "notes": "Verification passed (510 tests); ac1-ac6 hold; claude-code-review.yml diff is exactly 3 removed lines (YAML not parsed, PyYAML missing).",
+          "timestamp": "2026-10-01T10:03:02-04:00"
+        }
+      ],
+      "worktree": "",
+      "branch": "",
+      "drift": {
+        "predicted": 6,
+        "touched": 6,
+        "unpredicted": 0,
+        "ratio": 0,
+        "recorded_at": "2026-10-01T10:03:02-04:00"
+      },
+      "self_review": {
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "recorded_at": "2026-10-01T10:03:02-04:00"
+      }
     }
   ],
   "deferrals": [],
@@ -241,6 +270,10 @@
     {
       "timestamp": "2026-10-01T10:01:15-04:00",
       "note": "Dispatched task 2 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-2 (wave 2)"
+    },
+    {
+      "timestamp": "2026-10-01T10:03:02-04:00",
+      "note": "Task 2 runner reported wrong branch name; verified via git actual branch harness/chore-chainguard-org-latest/task-2 @ 8b1f856."
     }
   ],
   "plan_review_state": {
@@ -404,6 +437,13 @@
         "phase": "7",
         "decision": "resume: accumulate merges locally on main with no per-wave push; at end push a branch and open one PR",
         "reason": "user answered the protected-branch pause: 'accumulate all commits locally and do a PR at the end'"
+      },
+      {
+        "id": "ad5",
+        "timestamp": "2026-10-01T10:03:10-04:00",
+        "phase": "7",
+        "decision": "merged wave 2: task 2 -> local main; not pushed (PR at end per user)",
+        "reason": "resume policy ad4"
       }
     ]
   }
