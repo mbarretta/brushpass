@@ -9,12 +9,14 @@
       "autonomy": "managed",
       "tasks_total": 2,
       "tasks_complete": 1,
-      "wave_state": "idle",
-      "current_wave": null,
-      "wave_tasks_in_flight": [],
+      "wave_state": "in_flight",
+      "current_wave": 2,
+      "wave_tasks_in_flight": [
+        "2"
+      ],
       "paused_reason": "",
       "deferred_open": 0,
-      "updated": "2026-10-01T09:29:25-04:00",
+      "updated": "2026-10-01T10:01:15-04:00",
       "path": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/plans/chore-chainguard-org-latest.json"
     },
     {

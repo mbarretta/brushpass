@@ -155,7 +155,7 @@
     {
       "id": "2",
       "title": "Remove digestabot and octo-sts references",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "1"
       ],
@@ -202,7 +202,9 @@
         }
       ],
       "notes": "Do not edit .github/workflows/ci.yml here; task 1 owns it (including its digestabot comment).",
-      "verdicts": []
+      "verdicts": [],
+      "worktree": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-2",
+      "branch": "harness/chore-chainguard-org-latest/task-2"
     }
   ],
   "deferrals": [],
@@ -235,6 +237,10 @@
     {
       "timestamp": "2026-10-01T09:29:25-04:00",
       "note": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
+    },
+    {
+      "timestamp": "2026-10-01T10:01:15-04:00",
+      "note": "Dispatched task 2 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-2 (wave 2)"
     }
   ],
   "plan_review_state": {
@@ -361,9 +367,14 @@
   "managed_run": {
     "started_at": "2026-09-29T15:44:42-04:00",
     "go_confirmed_at": "2026-10-01T09:26:27-04:00",
-    "paused_at": "2026-10-01T09:29:25-04:00",
-    "pause_reason": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched",
-    "resumes": [],
+    "paused_at": null,
+    "pause_reason": "",
+    "resumes": [
+      {
+        "at": "2026-10-01T10:01:14-04:00",
+        "from": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
+      }
+    ],
     "completed_at": null,
     "auto_decisions": [
       {
@@ -386,6 +397,13 @@
         "phase": "7",
         "decision": "merged wave 1: task 1 -> main; pushed",
         "reason": "pre-authorized at go gate"
+      },
+      {
+        "id": "ad4",
+        "timestamp": "2026-10-01T10:01:15-04:00",
+        "phase": "7",
+        "decision": "resume: accumulate merges locally on main with no per-wave push; at end push a branch and open one PR",
+        "reason": "user answered the protected-branch pause: 'accumulate all commits locally and do a PR at the end'"
       }
     ]
   }
