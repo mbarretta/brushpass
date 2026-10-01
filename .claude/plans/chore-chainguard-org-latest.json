@@ -4,7 +4,7 @@
   "kind": "chore",
   "mode": "dev",
   "created": "2026-09-29",
-  "status": "planned",
+  "status": "complete",
   "context": "Chainguard is moving off the private barretta org to the free tier, which cannot pin digests. The owner switched the Dockerfile to the public catalog (cgr.dev/chainguard/node:latest-dev builder, :latest runner; resolves anonymously, Node v26.10.0). The barretta.dev org path returns 403 and is NOT used. Consequences: (1) base images float on latest; (2) digestabot (update-digests.yml + octo-sts trust policy) has nothing to update and is removed; (3) public images need no registry credentials, so the setup-chainctl steps and CHAINCTL_IDENTITY use in CI/deploy are removed, which also fixes Dependabot docker-build failures. Source plans: .claude/plans/yes-git-pull-yes-adaptive-wren.md (superseded on org path). PRE-DISPATCH: the owner's Dockerfile edit is uncommitted in the working tree; commit it first (or discard it; task 1 re-applies it idempotently) because wave pre-flight needs a clean tree. OUT OF REPO (owner): after merge, delete the now-unused CHAINCTL_IDENTITY secret from both Actions and Dependabot stores; optionally uninstall the octo-sts/digestabot GitHub App; `@dependabot recreate` #151/#105/#106 and confirm docker-build passes with no chainctl step. NOTE: merging the Dockerfile change triggers the Deploy workflow (paths-ignore skips .github/** and *.md but not the Dockerfile), so the merge itself deploys the new base image to production.",
   "verification": "npm ci && npm run lint && npm run typecheck && npm test",
   "constraints": [

@@ -3,7 +3,7 @@
     {
       "slug": "chore-chainguard-org-latest",
       "title": "Move base images to public cgr.dev/chainguard/node on latest; drop digestabot and chainctl auth",
-      "status": "planned",
+      "status": "complete",
       "mode": "dev",
       "parallelism": "auto",
       "autonomy": "managed",
@@ -14,7 +14,7 @@
       "wave_tasks_in_flight": [],
       "paused_reason": "",
       "deferred_open": 2,
-      "updated": "2026-10-01T10:04:07-04:00",
+      "updated": "2026-10-01T10:04:12-04:00",
       "path": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/plans/chore-chainguard-org-latest.json"
     },
     {
