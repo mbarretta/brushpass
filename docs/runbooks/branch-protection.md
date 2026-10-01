@@ -22,12 +22,6 @@ So the order is:
    independent of this PR).
 4. Only then run the `gh api` call in this runbook.
 
-If a digestabot PR is open at the moment you apply the change, it was opened
-before the new required contexts existed and will stall waiting for `test` and
-`lint` to report on its head commit. Close it — the next scheduled
-`update-digests` run reopens it against the current required-check set — or push
-an empty commit to its branch to force GitHub to re-evaluate.
-
 ## Precondition — `lint` must be GREEN at HEAD, not merely reported
 
 The three preconditions above are necessary but not sufficient. A context
@@ -167,8 +161,8 @@ EOF
 Notes on the fields:
 
 - `strict: false` — "require branches to be up to date before merging" is left
-  off. This is a single-collaborator repo with a solo human maintainer plus
-  digestabot; turning `strict` on would force a rebase-and-rerun cycle on every
+  off. This is a single-collaborator repo with a solo human maintainer;
+  turning `strict` on would force a rebase-and-rerun cycle on every
   PR whenever anything else lands first, for no safety benefit here. Turn it on
   later if a second human collaborator joins and PR concurrency actually
   happens.
@@ -181,18 +175,15 @@ Notes on the fields:
   This repo has exactly one human collaborator. GitHub does not allow a PR
   author to approve their own pull request, so enabling required reviews with
   one collaborator makes every one of that collaborator's own PRs permanently
-  unmergeable — and it equally blocks digestabot's PRs, which rely on
-  auto-merge with no human review step at all (`.github/workflows/update-digests.yml`).
+  unmergeable.
   Turning this on would be a full self-lockout, not a hardening measure. If a
   second trusted human collaborator is ever added, revisit this field then —
   not before.
-- `restrictions: null` — no push restrictions; the human owner and the
-  octo-sts-scoped digestabot token both need to be able to push/merge.
+- `restrictions: null` — no push restrictions; the human owner needs to be able to push/merge.
 
 ## The one-command escape hatch
 
-If required contexts get stuck (a context renamed, a workflow deleted, a
-digestabot PR wedged) and `main` needs to be unblocked immediately:
+If required contexts get stuck (a context renamed, or a workflow deleted) and `main` needs to be unblocked immediately:
 
 ```bash
 gh api --method DELETE repos/mbarretta/brushpass/branches/main/protection
