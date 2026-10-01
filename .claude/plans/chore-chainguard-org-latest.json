@@ -231,6 +231,10 @@
     {
       "timestamp": "2026-10-01T09:28:55-04:00",
       "note": "Implementer noted GCP_DEPLOYMENT_PLAN.md Cloud Build sentence reworded vaguer; update-digests.yml still has chainctl refs (task 2 deletes it)."
+    },
+    {
+      "timestamp": "2026-10-01T09:29:25-04:00",
+      "note": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
     }
   ],
   "plan_review_state": {
@@ -357,8 +361,8 @@
   "managed_run": {
     "started_at": "2026-09-29T15:44:42-04:00",
     "go_confirmed_at": "2026-10-01T09:26:27-04:00",
-    "paused_at": null,
-    "pause_reason": "",
+    "paused_at": "2026-10-01T09:29:25-04:00",
+    "pause_reason": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched",
     "resumes": [],
     "completed_at": null,
     "auto_decisions": [
