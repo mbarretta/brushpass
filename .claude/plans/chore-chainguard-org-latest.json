@@ -65,7 +65,7 @@
     {
       "id": "1",
       "title": "Use public cgr.dev/chainguard/node on latest; drop chainctl auth from CI and deploy",
-      "status": "in_progress",
+      "status": "complete",
       "depends_on": [],
       "origin": "planned",
       "files": [
@@ -119,9 +119,38 @@
         }
       ],
       "notes": "Cannot run docker build in the implementer (may lack Docker/network). CI docker-build is the real check. The owner already edited the Dockerfile FROM lines uncommitted; if that edit is present in the worktree base, ac1 and ac3 are already satisfied for those lines.",
-      "verdicts": [],
-      "worktree": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-1",
-      "branch": "harness/chore-chainguard-org-latest/task-1"
+      "verdicts": [
+        {
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "constraints": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "no_test_weakening": "PASS",
+          "issues": [
+            "Minor style only: README FROM-line comments no longer column-aligned; one long ci.yml comment line"
+          ],
+          "notes": "Verification passed (lint 0 errors, typecheck clean, 510 tests); all constraints respected; docker build not run, CI is the check.",
+          "timestamp": "2026-10-01T09:28:55-04:00"
+        }
+      ],
+      "worktree": "",
+      "branch": "",
+      "drift": {
+        "predicted": 5,
+        "touched": 5,
+        "unpredicted": 0,
+        "ratio": 0,
+        "recorded_at": "2026-10-01T09:28:55-04:00"
+      },
+      "self_review": {
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "recorded_at": "2026-10-01T09:28:55-04:00"
+      }
     },
     {
       "id": "2",
@@ -198,6 +227,10 @@
     {
       "timestamp": "2026-10-01T09:26:50-04:00",
       "note": "Dispatched task 1 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-1 (wave 1)"
+    },
+    {
+      "timestamp": "2026-10-01T09:28:55-04:00",
+      "note": "Implementer noted GCP_DEPLOYMENT_PLAN.md Cloud Build sentence reworded vaguer; update-digests.yml still has chainctl refs (task 2 deletes it)."
     }
   ],
   "plan_review_state": {
@@ -342,6 +375,13 @@
         "phase": "5",
         "decision": "commit pre-dispatch dirty tree (Dockerfile edit + plan files) unsigned as chore(harness) commit",
         "reason": "approved at go gate"
+      },
+      {
+        "id": "ad3",
+        "timestamp": "2026-10-01T09:29:11-04:00",
+        "phase": "7",
+        "decision": "merged wave 1: task 1 -> main; pushed",
+        "reason": "pre-authorized at go gate"
       }
     ]
   }
