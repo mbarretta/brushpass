@@ -65,7 +65,7 @@
     {
       "id": "1",
       "title": "Use public cgr.dev/chainguard/node on latest; drop chainctl auth from CI and deploy",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [],
       "origin": "planned",
       "files": [
@@ -119,7 +119,9 @@
         }
       ],
       "notes": "Cannot run docker build in the implementer (may lack Docker/network). CI docker-build is the real check. The owner already edited the Dockerfile FROM lines uncommitted; if that edit is present in the worktree base, ac1 and ac3 are already satisfied for those lines.",
-      "verdicts": []
+      "verdicts": [],
+      "worktree": "/Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-1",
+      "branch": "harness/chore-chainguard-org-latest/task-1"
     },
     {
       "id": "2",
@@ -192,6 +194,10 @@
     {
       "timestamp": "2026-09-29T15:38:34-04:00",
       "note": "Codex re-review of the replanned scope: round 3 approve, no findings."
+    },
+    {
+      "timestamp": "2026-10-01T09:26:50-04:00",
+      "note": "Dispatched task 1 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-1 (wave 1)"
     }
   ],
   "plan_review_state": {
