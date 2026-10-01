@@ -1,7 +1,6 @@
-# WIF / octo-sts claim-pinning runbook
+# WIF claim-pinning runbook
 
-**Status: octo-sts change is live-safe and can ship freely; the Terraform (WIF)
-change is staged only.** No `terraform apply`, no `terraform init
+**Status: the Terraform (WIF) change is staged only.** No `terraform apply`, no `terraform init
 -migrate-state`, and no GitHub API write have been executed by the task that
 produced this document — every `gh api` and `gcloud` call used while drafting
 it was a read (`git refs/tags`, `git tags`, `providers --help`), and the diff
@@ -10,31 +9,23 @@ apply by hand.
 
 ## Why this exists
 
-Both the octo-sts trust policy for `update-digests.yml` and the GCP Workload
-Identity Federation (WIF) condition for `deploy.yml` matched any GitHub
-Actions token minted for **this repository on `refs/heads/main`** — not the
-specific workflow file the token was supposed to be for. This repo is public
-with no required reviews, and `.github/workflows/claude.yml` also runs on
-`main`-adjacent events with `id-token: write`. Without a workflow-level pin,
-any main-branch workflow's OIDC token could satisfy either trust policy,
-including one an attacker triggers by injecting a comment into `claude.yml`'s
-`issue_comment` trigger. Both policies now additionally require the OIDC
-token's `job_workflow_ref` claim (or, for the GCP CEL condition,
-`assertion.job_workflow_ref`) to equal the exact workflow file that is
-supposed to hold that privilege — `update-digests.yml` for octo-sts,
-`deploy.yml` for WIF. `job_workflow_ref`, not `workflow_ref`, is the claim that
+The GCP Workload Identity Federation (WIF) condition for `deploy.yml` used to
+match any GitHub Actions token minted for **this repository on
+`refs/heads/main`** — not the specific workflow file the token was supposed to
+be for. This repo is public with no required reviews, and
+`.github/workflows/claude.yml` also runs on `main`-adjacent events with
+`id-token: write`. Without a workflow-level pin, any main-branch workflow's
+OIDC token could satisfy the trust policy, including one an attacker triggers by
+injecting a comment into `claude.yml`'s `issue_comment` trigger. The condition
+now additionally requires `assertion.job_workflow_ref` to equal the exact
+workflow file that is supposed to hold that privilege, `deploy.yml`.
+`job_workflow_ref`, not `workflow_ref`, is the claim that
 names the code that actually executes; only it cannot be spoofed by a caller
 workflow.
 
-## Two changes, two very different risk profiles
+## Risk profile
 
-| Change | File | Risk if wrong | Why |
-|---|---|---|---|
-| octo-sts claim pattern | `.github/chainguard/digestabot.sts.yaml` | Low — fixable with a push | octo-sts reads its trust policy from the repository's **default branch**. A pull request cannot alter it, so an attacker cannot use a malicious PR to loosen this file, and if the owner's own edit has a typo the only symptom is `update-digests.yml` failing to federate a token on its next scheduled run — annoying, not a lockout. |
-| WIF `attribute_condition` | `terraform/wif.tf` | **High — up to ~30 days of broken deploys** | See the next section. This is the one that needs the procedure below, in order, before `terraform apply`. |
-
-Apply the octo-sts change first and independently. It does not depend on the
-Terraform change and carries none of its risk.
+The WIF `attribute_condition` in `terraform/wif.tf` is **high risk — up to ~30 days of broken deploys** if applied wrongly. See the next section; follow the procedure below, in order, before `terraform apply`.
 
 ## THE LOCKOUT RISK — read this before running `terraform apply` on wif.tf
 
@@ -170,16 +161,6 @@ fully expires) and updating the hardcoded resource path in `deploy.yml`
 accordingly. This is the scenario Step 2 exists to prevent; it is significant
 enough manual work that it should not be reached in practice.
 
-## After ac1 and ac2 are live and verified
+## After the WIF condition is live and verified
 
-Per the parent task's notes: once the octo-sts pin and the WIF condition are
-both applied and confirmed working (a real `update-digests.yml` run federates
-successfully; a real `deploy.yml` push-to-main run federates and deploys),
-consider removing `id-token: write` from `.github/workflows/claude.yml` and
-`.github/workflows/claude-code-review.yml` entirely — they don't federate to
-any external OIDC-trusting service today, so the permission is currently
-unused surface. The claim pins in this document are the real control either
-way; that follow-up is belt-and-braces and deliberately **not** part of this
-change, since it depends on ac1/ac2 having been observed working in
-production first, which this task cannot do (see the operational boundary
-above).
+Once the WIF condition is applied and confirmed working (a real `deploy.yml` push-to-main run federates and deploys), consider removing `id-token: write` from `.github/workflows/claude.yml` and `.github/workflows/claude-code-review.yml` entirely — they don't federate to any external OIDC-trusting service today, so the permission is currently unused surface. The claim pin in this document is the real control either way; that follow-up is belt-and-braces and deliberately **not** part of this change, since it depends on the pin having been observed working in production first.

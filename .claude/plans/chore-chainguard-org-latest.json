@@ -1,0 +1,533 @@
+{
+  "slug": "chore-chainguard-org-latest",
+  "title": "Move base images to public cgr.dev/chainguard/node on latest; drop digestabot and chainctl auth",
+  "kind": "chore",
+  "mode": "dev",
+  "created": "2026-09-29",
+  "status": "complete",
+  "context": "Chainguard is moving off the private barretta org to the free tier, which cannot pin digests. The owner switched the Dockerfile to the public catalog (cgr.dev/chainguard/node:latest-dev builder, :latest runner; resolves anonymously, Node v26.10.0). The barretta.dev org path returns 403 and is NOT used. Consequences: (1) base images float on latest; (2) digestabot (update-digests.yml + octo-sts trust policy) has nothing to update and is removed; (3) public images need no registry credentials, so the setup-chainctl steps and CHAINCTL_IDENTITY use in CI/deploy are removed, which also fixes Dependabot docker-build failures. Source plans: .claude/plans/yes-git-pull-yes-adaptive-wren.md (superseded on org path). PRE-DISPATCH: the owner's Dockerfile edit is uncommitted in the working tree; commit it first (or discard it; task 1 re-applies it idempotently) because wave pre-flight needs a clean tree. OUT OF REPO (owner): after merge, delete the now-unused CHAINCTL_IDENTITY secret from both Actions and Dependabot stores; optionally uninstall the octo-sts/digestabot GitHub App; `@dependabot recreate` #151/#105/#106 and confirm docker-build passes with no chainctl step. NOTE: merging the Dockerfile change triggers the Deploy workflow (paths-ignore skips .github/** and *.md but not the Dockerfile), so the merge itself deploys the new base image to production.",
+  "verification": "npm ci && npm run lint && npm run typecheck && npm test",
+  "constraints": [
+    "Do not touch .npmrc or any libraries.cgr.dev reference (a host, not org-scoped)",
+    "Do not edit historical .claude/plans/* files other than this plan and its source .md",
+    "terraform/wif.tf: comment-only change; no resource, variable, or condition edits",
+    "Dockerfile: keep the native-module smoke test and the USER 65532 / /app layout unchanged",
+    "deploy.yml must keep `id-token: write` (GCP workload identity federation needs it); only the chainctl step and its comment are removed"
+  ],
+  "parallelism": "auto",
+  "wave_execution": "runner",
+  "autonomy": "managed",
+  "signing_disabled": true,
+  "security_audit": "auto",
+  "quality_review": "auto",
+  "plan_review": "auto",
+  "deferred_review": "auto",
+  "sweep": false,
+  "parallel_plan": {
+    "computed_at": "2026-09-29T14:54:43-04:00",
+    "base_branch": "main",
+    "waves": [
+      {
+        "id": 1,
+        "tasks": [
+          "1"
+        ],
+        "notes": "Task 1 owns Dockerfile, README, GCP doc, ci.yml and deploy.yml, including the ci.yml digestabot comment."
+      },
+      {
+        "id": 2,
+        "tasks": [
+          "2"
+        ],
+        "notes": "Depends on task 1: task 2 ac6 is a repo-wide grep that must see the ci.yml comment removal from task 1 (Codex plan-review pr1). File sets are otherwise disjoint."
+      }
+    ],
+    "predicted_files": {
+      "1": [
+        "Dockerfile",
+        "README.md",
+        "GCP_DEPLOYMENT_PLAN.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml"
+      ],
+      "2": [
+        ".github/workflows/update-digests.yml",
+        ".github/chainguard/digestabot.sts.yaml",
+        ".github/workflows/claude-code-review.yml",
+        "terraform/wif.tf",
+        "docs/runbooks/branch-protection.md",
+        "docs/runbooks/wif-claim-pinning.md"
+      ]
+    },
+    "post_merge_build": []
+  },
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Use public cgr.dev/chainguard/node on latest; drop chainctl auth from CI and deploy",
+      "status": "complete",
+      "depends_on": [],
+      "origin": "planned",
+      "files": [
+        "Dockerfile",
+        "README.md",
+        "GCP_DEPLOYMENT_PLAN.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml"
+      ],
+      "why": "Free-tier Chainguard cannot pin digests and the public catalog needs no credentials, so pins, the private-org path, and chainctl setup are all dead weight.",
+      "acceptance_criteria": [
+        {
+          "id": "ac1",
+          "text": "Dockerfile builder stage is `FROM cgr.dev/chainguard/node:latest-dev AS builder` and runner stage is `FROM cgr.dev/chainguard/node:latest AS runner`; no `@sha256:` digest, no `26-dev`/`26-slim` tag, and no `cgr.dev/barretta` reference remains",
+          "critical": true
+        },
+        {
+          "id": "ac2",
+          "text": "The Dockerfile has a short header comment stating images float on latest because the free tier cannot pin, and that the native-module smoke test is the guard against a floating base; the old 'digests pinned 2026-04-09 / imagetools inspect ... 25-dev' lines are gone",
+          "critical": false
+        },
+        {
+          "id": "ac3",
+          "text": "Apart from the two FROM lines and the header comment, the Dockerfile is unchanged (USER 65532, WORKDIR /app, apk add line, native-module smoke test, COPY layout, CMD)",
+          "critical": true
+        },
+        {
+          "id": "ac4",
+          "text": "README.md 'Base images' code block shows the two new FROM lines (chainguard/node, latest-dev / latest); prose stays accurate (no claim of a -slim variant)",
+          "critical": false
+        },
+        {
+          "id": "ac5",
+          "text": "ci.yml docker-build job no longer has the chainguard-dev/setup-chainctl step, its comments, or the `id-token: write` permission (keeps `contents: read`); its remaining comment no longer describes gating digestabot PRs or pulling private barretta images; the job still runs `docker build -t brushpass:ci .`",
+          "critical": true
+        },
+        {
+          "id": "ac6",
+          "text": "deploy.yml has no setup-chainctl step or chainctl/cgr.dev/CHAINCTL_IDENTITY comment, but KEEPS `id-token: write` (its comment says it is for GCP WIF only) and every GCP/build/deploy step is unchanged",
+          "critical": true
+        },
+        {
+          "id": "ac7",
+          "text": "GCP_DEPLOYMENT_PLAN.md: the prerequisite about local cgr.dev credentials and the 'private registry like cgr.dev/YOUR_ORG' note are corrected to say the public chainguard/node images need no credentials; the runner build note (~line 103) has no node:25-slim reference and any CMD example matches the Dockerfile CMD exactly ([\"./node_modules/next/dist/bin/next\", \"start\"])",
+          "critical": false
+        },
+        {
+          "id": "ac8",
+          "text": "git grep -nE \"cgr\\.dev/barretta|sha256:[0-9a-f]{64}|25-slim|26-slim|setup-chainctl|CHAINCTL_IDENTITY\" -- Dockerfile README.md GCP_DEPLOYMENT_PLAN.md .github/workflows/ci.yml .github/workflows/deploy.yml returns nothing",
+          "critical": true
+        }
+      ],
+      "notes": "Cannot run docker build in the implementer (may lack Docker/network). CI docker-build is the real check. The owner already edited the Dockerfile FROM lines uncommitted; if that edit is present in the worktree base, ac1 and ac3 are already satisfied for those lines.",
+      "verdicts": [
+        {
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "constraints": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "no_test_weakening": "PASS",
+          "issues": [
+            "Minor style only: README FROM-line comments no longer column-aligned; one long ci.yml comment line"
+          ],
+          "notes": "Verification passed (lint 0 errors, typecheck clean, 510 tests); all constraints respected; docker build not run, CI is the check.",
+          "timestamp": "2026-10-01T09:28:55-04:00"
+        }
+      ],
+      "worktree": "",
+      "branch": "",
+      "drift": {
+        "predicted": 5,
+        "touched": 5,
+        "unpredicted": 0,
+        "ratio": 0,
+        "recorded_at": "2026-10-01T09:28:55-04:00"
+      },
+      "self_review": {
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "recorded_at": "2026-10-01T09:28:55-04:00"
+      }
+    },
+    {
+      "id": "2",
+      "title": "Remove digestabot and octo-sts references",
+      "status": "complete",
+      "depends_on": [
+        "1"
+      ],
+      "origin": "planned",
+      "files": [
+        ".github/workflows/update-digests.yml",
+        ".github/chainguard/digestabot.sts.yaml",
+        ".github/workflows/claude-code-review.yml",
+        "terraform/wif.tf",
+        "docs/runbooks/branch-protection.md",
+        "docs/runbooks/wif-claim-pinning.md"
+      ],
+      "why": "With no pinned digests there is nothing for digestabot to update, so its workflow, trust policy, and every doc that depends on it are dead weight and a standing trust grant.",
+      "acceptance_criteria": [
+        {
+          "id": "ac1",
+          "text": ".github/workflows/update-digests.yml and .github/chainguard/digestabot.sts.yaml are deleted (`git rm`); the empty .github/chainguard/ directory does not remain",
+          "critical": true
+        },
+        {
+          "id": "ac2",
+          "text": ".github/workflows/claude-code-review.yml no longer contains the `allowed_bots: 'octo-sts[bot]'` line or its two-line comment; every other line of the workflow is unchanged and the file is still valid YAML",
+          "critical": true
+        },
+        {
+          "id": "ac3",
+          "text": "terraform/wif.tf change is limited to rewording the comment near line 36 that references digestabot.sts.yaml; no resource, variable, output, or attribute_condition is edited",
+          "critical": true
+        },
+        {
+          "id": "ac4",
+          "text": "docs/runbooks/branch-protection.md has no remaining mention of digestabot, octo-sts, or update-digests; the surrounding guidance (required checks, strict mode, admin bypass) still reads coherently without the digestabot-specific paragraphs",
+          "critical": false
+        },
+        {
+          "id": "ac5",
+          "text": "docs/runbooks/wif-claim-pinning.md has the octo-sts / update-digests.yml rows, steps and status wording removed or rewritten so the runbook covers only the WIF/deploy.yml pin; the WIF lockout-risk section is untouched",
+          "critical": false
+        },
+        {
+          "id": "ac6",
+          "text": "`git grep -niE 'digestabot|octo-sts|update-digests' -- . ':!.claude'` returns nothing",
+          "critical": true
+        }
+      ],
+      "notes": "Do not edit .github/workflows/ci.yml here; task 1 owns it (including its digestabot comment).",
+      "verdicts": [
+        {
+          "overall": "PASS",
+          "verification": "PASS",
+          "criteria": "PASS",
+          "criteria_critical": "PASS",
+          "constraints": "PASS",
+          "quality": "PASS",
+          "no_placeholders": "PASS",
+          "no_test_weakening": "PASS",
+          "issues": [
+            "Minor style only"
+          ],
+          "notes": "Verification passed (510 tests); ac1-ac6 hold; claude-code-review.yml diff is exactly 3 removed lines (YAML not parsed, PyYAML missing).",
+          "timestamp": "2026-10-01T10:03:02-04:00"
+        }
+      ],
+      "worktree": "",
+      "branch": "",
+      "drift": {
+        "predicted": 6,
+        "touched": 6,
+        "unpredicted": 0,
+        "ratio": 0,
+        "recorded_at": "2026-10-01T10:03:02-04:00"
+      },
+      "self_review": {
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "recorded_at": "2026-10-01T10:03:02-04:00"
+      }
+    }
+  ],
+  "deferrals": [
+    {
+      "id": "d1",
+      "task_id": "1",
+      "source": "security-finding",
+      "finding_id": "sec1",
+      "severity": "low",
+      "reason_code": "contract",
+      "location": "Dockerfile:5-6,36",
+      "note": "Floating :latest base images; optional cosign verify or digest logging",
+      "status": "carried",
+      "deferred_at": "2026-10-01T10:03:39-04:00",
+      "resolved_at": null,
+      "resolution_task_id": "",
+      "resolved_by_plan": "",
+      "reason": ""
+    },
+    {
+      "id": "d2",
+      "task_id": "2",
+      "source": "security-finding",
+      "finding_id": "sec2",
+      "severity": "info",
+      "reason_code": "contract",
+      "location": ".github/workflows/deploy.yml:25",
+      "note": "Remove unused id-token: write from claude.yml and claude-code-review.yml after WIF pin verified",
+      "status": "carried",
+      "deferred_at": "2026-10-01T10:03:39-04:00",
+      "resolved_at": null,
+      "resolution_task_id": "",
+      "resolved_by_plan": "",
+      "reason": ""
+    }
+  ],
+  "gap_notes": [],
+  "log": [
+    {
+      "timestamp": "2026-09-29T14:54:43-04:00",
+      "note": "Plan created from the user's approved plan-mode plan (.claude/plans/yes-git-pull-yes-adaptive-wren.md). Local main fast-forwarded to 200866e first (was 48 behind). No CHARTER.md found; charter check skipped."
+    },
+    {
+      "timestamp": "2026-09-29T14:58:44-04:00",
+      "note": "Codex plan review: round 1 revise (3 applied: task 2 depends on task 1, verification gains npm ci, GCP doc runner note); round 2 approve. Wave plan is now 2 sequential waves."
+    },
+    {
+      "timestamp": "2026-09-29T15:37:29-04:00",
+      "note": "Replanned after the owner switched the Dockerfile to public cgr.dev/chainguard/node:latest(-dev) (barretta.dev path 403s). Task 1 now also removes setup-chainctl / CHAINCTL_IDENTITY from ci.yml and deploy.yml (deploy.yml keeps id-token for GCP WIF). Task 2 unchanged."
+    },
+    {
+      "timestamp": "2026-09-29T15:38:34-04:00",
+      "note": "Codex re-review of the replanned scope: round 3 approve, no findings."
+    },
+    {
+      "timestamp": "2026-10-01T09:26:50-04:00",
+      "note": "Dispatched task 1 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-1 (wave 1)"
+    },
+    {
+      "timestamp": "2026-10-01T09:28:55-04:00",
+      "note": "Implementer noted GCP_DEPLOYMENT_PLAN.md Cloud Build sentence reworded vaguer; update-digests.yml still has chainctl refs (task 2 deletes it)."
+    },
+    {
+      "timestamp": "2026-10-01T09:29:25-04:00",
+      "note": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
+    },
+    {
+      "timestamp": "2026-10-01T10:01:15-04:00",
+      "note": "Dispatched task 2 to harness-task-runner in worktree /Users/barretta/workspace/github/mbarretta/brushpass/.claude/worktrees/chore-chainguard-org-latest-task-2 (wave 2)"
+    },
+    {
+      "timestamp": "2026-10-01T10:03:02-04:00",
+      "note": "Task 2 runner reported wrong branch name; verified via git actual branch harness/chore-chainguard-org-latest/task-2 @ 8b1f856."
+    },
+    {
+      "timestamp": "2026-10-01T10:04:07-04:00",
+      "note": "Quality review clean. Deferred review: no open entries (d1, d2 already carried); skipped. No charter; 7.7 skipped."
+    }
+  ],
+  "plan_review_state": {
+    "rounds": [
+      {
+        "round": 1,
+        "started_at": "2026-09-29T14:55:24-04:00",
+        "duration_s": 99,
+        "model_resolved": null,
+        "verdict": "revise",
+        "findings": 3,
+        "applied": 3,
+        "deferred": 0,
+        "rejected": 0,
+        "exit": "ok",
+        "recorded_at": "2026-09-29T14:57:35-04:00"
+      },
+      {
+        "round": 2,
+        "started_at": "2026-09-29T14:58:30-04:00",
+        "duration_s": 48,
+        "model_resolved": null,
+        "verdict": "approve",
+        "findings": 0,
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "exit": "ok",
+        "recorded_at": "2026-09-29T14:58:44-04:00"
+      },
+      {
+        "round": 3,
+        "started_at": "2026-09-29T15:40:00-04:00",
+        "duration_s": 56,
+        "model_resolved": null,
+        "verdict": "approve",
+        "findings": 0,
+        "applied": 0,
+        "deferred": 0,
+        "rejected": 0,
+        "exit": "ok",
+        "recorded_at": "2026-09-29T15:38:34-04:00"
+      }
+    ],
+    "threshold": "high",
+    "max_rounds": 3,
+    "effort": "high",
+    "enabled_by": "auto",
+    "stop_reason": "approve",
+    "summary": "3 rounds; verdict approve; 3 applied / 0 deferred / 0 rejected",
+    "last_run_at": "2026-09-29T15:38:34-04:00"
+  },
+  "plan_review_findings": [
+    {
+      "id": "pr1",
+      "reviewer_ref": "f1",
+      "status": "applied",
+      "disposition_reason": "Task 2 now depends on task 1; wave plan recomputed to two waves so the repo-wide grep sees ci.yml's cleanup.",
+      "dispositioned_at": "2026-09-29T14:57:35-04:00",
+      "supersedes": null,
+      "discovered_at": "2026-09-29T14:57:35-04:00",
+      "round": 1,
+      "severity": "high",
+      "confidence": 1,
+      "category": "hidden-dependency",
+      "target": "tasks[1].depends_on",
+      "title": "Task 2 cannot pass its repository-wide check independently",
+      "description": "Task 2 ac6 requires zero digestabot references outside .claude, but Task 1 owns removal of the reference in ci.yml. With both tasks dependency-free, Task 2 can be evaluated before that removal and fail despite completing all its assigned edits.",
+      "evidence": "git grep -niE 'digestabot|octo-sts|update-digests' found .github/workflows/ci.yml:34, which reads '# digestabot PRs: it fails if a new base-image digest can't be pulled or'.",
+      "recommendation": "Make Task 2 depend on Task 1 so its global check sees the CI comment removal.",
+      "suggested_change": {
+        "op": "modify",
+        "target": "tasks[1].depends_on",
+        "proposed": "[\"1\"]"
+      }
+    },
+    {
+      "id": "pr2",
+      "reviewer_ref": "f2",
+      "status": "applied",
+      "disposition_reason": "Verified: no node_modules in a fresh worktree; verification now starts with npm ci.",
+      "dispositioned_at": "2026-09-29T14:57:35-04:00",
+      "supersedes": null,
+      "discovered_at": "2026-09-29T14:57:35-04:00",
+      "round": 1,
+      "severity": "critical",
+      "confidence": 1,
+      "category": "wrong-verification",
+      "target": "verification",
+      "title": "Verification lacks the dependency installation required in this checkout",
+      "description": "The npm scripts exist, but none of their executables is installed locally or available on PATH. The verification command cannot run successfully here without an installation step, and the plan supplies none.",
+      "evidence": "package.json:9-11 invokes eslint, next, tsc, and vitest. ls -d node_modules reported 'No such file or directory'; command -v npm node eslint next tsc vitest returned only npm and node. Existing CI explicitly runs npm ci before checks at .github/workflows/ci.yml:56 and :80. Verification was not executed, as requested.",
+      "recommendation": "Bootstrap dependencies from the lockfile before invoking verification.",
+      "suggested_change": {
+        "op": "modify",
+        "target": "verification",
+        "proposed": "npm ci && npm run lint && npm run typecheck && npm test"
+      }
+    },
+    {
+      "id": "pr3",
+      "reviewer_ref": "f3",
+      "status": "applied",
+      "disposition_reason": "Verified GCP_DEPLOYMENT_PLAN.md:103 names node:25-slim and a CMD that differs from Dockerfile:48; ac6 rewritten, ac7 grep extended.",
+      "dispositioned_at": "2026-09-29T14:57:35-04:00",
+      "supersedes": null,
+      "discovered_at": "2026-09-29T14:57:35-04:00",
+      "round": 1,
+      "severity": "medium",
+      "confidence": 1,
+      "category": "missing-task",
+      "target": "tasks[0].acceptance_criteria[5]",
+      "title": "The conditional documentation edit preserves obsolete runner instructions",
+      "description": "The criterion permits GCP_DEPLOYMENT_PLAN.md edits only where it names the old barretta org. Its build notes instead name node:25-slim and prescribe a CMD different from the current Dockerfile. Those instructions survive both this criterion and ac7’s grep after the migration to latest.",
+      "evidence": "GCP_DEPLOYMENT_PLAN.md:103 identifies the runner as node:25-slim and recommends CMD [\"node\", \"./node_modules/next/dist/bin/next\", \"start\"]. Dockerfile:48 actually uses CMD [\"./node_modules/next/dist/bin/next\", \"start\"].",
+      "recommendation": "Explicitly include the runner build note in the documentation update and remove the old-org-only restriction.",
+      "suggested_change": {
+        "op": "modify",
+        "target": "tasks[0].acceptance_criteria[5]",
+        "proposed": "GCP_DEPLOYMENT_PLAN.md preserves the generic cgr.dev credential guidance and updates the runner build note to reference cgr.dev/barretta.dev/node:latest. It contains no node:25-slim reference, and any CMD example matches the unchanged Dockerfile CMD exactly."
+      }
+    }
+  ],
+  "managed_run": {
+    "started_at": "2026-09-29T15:44:42-04:00",
+    "go_confirmed_at": "2026-10-01T09:26:27-04:00",
+    "paused_at": null,
+    "pause_reason": "",
+    "resumes": [
+      {
+        "at": "2026-10-01T10:01:14-04:00",
+        "from": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
+      }
+    ],
+    "completed_at": "2026-10-01T10:04:07-04:00",
+    "auto_decisions": [
+      {
+        "id": "ad1",
+        "timestamp": "2026-10-01T09:26:27-04:00",
+        "phase": "4",
+        "decision": "signing disabled per-worktree and per-merge for this run",
+        "reason": "repo enforces gpgsign via gitsign; stated in go-gate echo"
+      },
+      {
+        "id": "ad2",
+        "timestamp": "2026-10-01T09:26:27-04:00",
+        "phase": "5",
+        "decision": "commit pre-dispatch dirty tree (Dockerfile edit + plan files) unsigned as chore(harness) commit",
+        "reason": "approved at go gate"
+      },
+      {
+        "id": "ad3",
+        "timestamp": "2026-10-01T09:29:11-04:00",
+        "phase": "7",
+        "decision": "merged wave 1: task 1 -> main; pushed",
+        "reason": "pre-authorized at go gate"
+      },
+      {
+        "id": "ad4",
+        "timestamp": "2026-10-01T10:01:15-04:00",
+        "phase": "7",
+        "decision": "resume: accumulate merges locally on main with no per-wave push; at end push a branch and open one PR",
+        "reason": "user answered the protected-branch pause: 'accumulate all commits locally and do a PR at the end'"
+      },
+      {
+        "id": "ad5",
+        "timestamp": "2026-10-01T10:03:10-04:00",
+        "phase": "7",
+        "decision": "merged wave 2: task 2 -> local main; not pushed (PR at end per user)",
+        "reason": "resume policy ad4"
+      },
+      {
+        "id": "ad6",
+        "timestamp": "2026-10-01T10:03:39-04:00",
+        "phase": "7.5",
+        "decision": "security audit: 2 findings (low, info), 0 remediated, 2 carried",
+        "reason": "policy: remediate only severity>=medium and confidence>=medium"
+      },
+      {
+        "id": "ad7",
+        "timestamp": "2026-10-01T10:04:07-04:00",
+        "phase": "7.6",
+        "decision": "quality review clean; 7.65 skipped (no open deferrals); 7.7 skipped (no charter)",
+        "reason": "policy"
+      }
+    ]
+  },
+  "security_findings": [
+    {
+      "status": "deferred",
+      "justification": "",
+      "remediation_task_id": "",
+      "remediated_at": null,
+      "discovered_at": "2026-10-01T10:03:43-04:00",
+      "id": "sec1",
+      "severity": "low",
+      "category": "supply-chain",
+      "location": "Dockerfile:5-6,36",
+      "evidence": "FROM cgr.dev/chainguard/node:latest-dev AS builder / FROM cgr.dev/chainguard/node:latest AS runner",
+      "description": "Base images float on :latest from the public catalog; an unverified upstream publish or major Node bump flows to production. Accepted by owner (free tier cannot pin).",
+      "remediation": "Optional: cosign verify the base image before build, or log the resolved digest at build time.",
+      "confidence": "medium"
+    },
+    {
+      "status": "deferred",
+      "justification": "",
+      "remediation_task_id": "",
+      "remediated_at": null,
+      "discovered_at": "2026-10-01T10:03:44-04:00",
+      "id": "sec2",
+      "severity": "info",
+      "category": "access-control",
+      "location": ".github/workflows/deploy.yml:25",
+      "evidence": "id-token: write remains on claude.yml and claude-code-review.yml",
+      "description": "id-token: write remains on claude.yml and claude-code-review.yml where the runbook says it is unused; follow-up still open.",
+      "remediation": "After WIF pin is verified, remove id-token: write from claude.yml and claude-code-review.yml.",
+      "confidence": "low"
+    }
+  ]
+}
