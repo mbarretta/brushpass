@@ -14,8 +14,8 @@ Brushpass uses Chainguard throughout the container and dependency supply chain.
 The Docker build uses two Chainguard Container images:
 
 ```dockerfile
-FROM cgr.dev/barretta/node:26-dev AS builder   # build stage — includes gcc, make, python3 for native addons
-FROM cgr.dev/barretta/node:26-slim AS runner   # runtime stage — minimal, distroless-style
+FROM cgr.dev/chainguard/node:latest-dev AS builder   # build stage — includes gcc, make, python3 for native addons
+FROM cgr.dev/chainguard/node:latest AS runner   # runtime stage — minimal, distroless-style
 ```
 
 Both images are rebuilt nightly from source with zero known CVEs at release time and ship with Sigstore signatures and SBOMs. The multi-stage build means the final runtime image contains only the Node.js runtime and application files — no compiler toolchain, no package manager, no shell.

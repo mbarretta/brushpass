@@ -19,7 +19,7 @@ Deploys the app to **Cloud Run (gen2)** in GCP. SQLite is persisted by mounting 
 
 - `gcloud` CLI authenticated with an account that has `roles/owner` or equivalent on the project
 - Docker with `buildx` support (for cross-platform builds on Apple Silicon)
-- Local Docker credentials for `cgr.dev` if using Chainguard images (the build runs locally, not in Cloud Build — see [Build notes](#build-notes))
+- Docker able to pull the public `cgr.dev/chainguard/node` images (no credentials needed; the build runs locally, not in Cloud Build — see [Build notes](#build-notes))
 - Two GCS buckets: one for uploaded files (can be pre-existing), one new one for the SQLite volume
 
 ---
@@ -94,13 +94,13 @@ echo -n "$(openssl rand -base64 32)" | \
 
 ### Build notes
 
-**Build locally, not via Cloud Build.** `gcloud run deploy --source .` submits source to Cloud Build, which runs on Google's infrastructure and cannot pull from a private registry like `cgr.dev/YOUR_ORG/` without additional credential configuration. Build locally where your Docker daemon already has the right credentials, then push the result.
+**Build locally, not via Cloud Build.** `gcloud run deploy --source .` submits source to Cloud Build, which runs on Google's infrastructure and is not the project's supported build path. The public `cgr.dev/chainguard/node` images need no credentials; build locally with Docker, then push the result.
 
 **Apple Silicon (ARM64) → Cloud Run (AMD64).** Building on an M-series Mac produces an ARM64 image by default. Cloud Run requires AMD64. Use `docker buildx build --platform linux/amd64`.
 
 **`GCS_BUCKET` must be set at build time.** `src/lib/gcs.ts` throws at module import if the env var is missing. Next.js executes route handlers during `next build` to collect page data, which triggers that import. Set a placeholder value in the builder stage — it is only used during the build phase, never at runtime.
 
-**Chainguard slim images have no shell.** The `node:25-slim` runner image does not include `/bin/sh`. Use `CMD ["node", "./node_modules/next/dist/bin/next", "start"]` to invoke Node directly via the image's built-in entrypoint. A shell-based `ENTRYPOINT ["/bin/sh", "..."]` will fail silently at container startup.
+**Chainguard runtime images have no shell.** The `cgr.dev/chainguard/node:latest` runner image does not include `/bin/sh`. Use `CMD ["./node_modules/next/dist/bin/next", "start"]` to invoke Node directly via the image's built-in entrypoint. A shell-based `ENTRYPOINT ["/bin/sh", "..."]` will fail silently at container startup.
 
 ```bash
 IMAGE=us-central1-docker.pkg.dev/YOUR_PROJECT/cloud-run-source-deploy/fileshare:latest

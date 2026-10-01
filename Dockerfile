@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1
+# Base images float on :latest from the public Chainguard catalog; the free tier
+# cannot pin digests. The native-module smoke test below is the guard against a
+# floating base breaking better-sqlite3 or sharp.
 FROM cgr.dev/chainguard/node:latest-dev AS builder
 USER root
 RUN apk add --no-cache gcc make python3
