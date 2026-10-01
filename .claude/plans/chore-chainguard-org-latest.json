@@ -236,7 +236,40 @@
       }
     }
   ],
-  "deferrals": [],
+  "deferrals": [
+    {
+      "id": "d1",
+      "task_id": "1",
+      "source": "security-finding",
+      "finding_id": "sec1",
+      "severity": "low",
+      "reason_code": "contract",
+      "location": "Dockerfile:5-6,36",
+      "note": "Floating :latest base images; optional cosign verify or digest logging",
+      "status": "carried",
+      "deferred_at": "2026-10-01T10:03:39-04:00",
+      "resolved_at": null,
+      "resolution_task_id": "",
+      "resolved_by_plan": "",
+      "reason": ""
+    },
+    {
+      "id": "d2",
+      "task_id": "2",
+      "source": "security-finding",
+      "finding_id": "sec2",
+      "severity": "info",
+      "reason_code": "contract",
+      "location": ".github/workflows/deploy.yml:25",
+      "note": "Remove unused id-token: write from claude.yml and claude-code-review.yml after WIF pin verified",
+      "status": "carried",
+      "deferred_at": "2026-10-01T10:03:39-04:00",
+      "resolved_at": null,
+      "resolution_task_id": "",
+      "resolved_by_plan": "",
+      "reason": ""
+    }
+  ],
   "gap_notes": [],
   "log": [
     {
@@ -274,6 +307,10 @@
     {
       "timestamp": "2026-10-01T10:03:02-04:00",
       "note": "Task 2 runner reported wrong branch name; verified via git actual branch harness/chore-chainguard-org-latest/task-2 @ 8b1f856."
+    },
+    {
+      "timestamp": "2026-10-01T10:04:07-04:00",
+      "note": "Quality review clean. Deferred review: no open entries (d1, d2 already carried); skipped. No charter; 7.7 skipped."
     }
   ],
   "plan_review_state": {
@@ -408,7 +445,7 @@
         "from": "wave 1 merged locally into main but push rejected: protected branch hook declined (main requires a PR); task 2 not dispatched"
       }
     ],
-    "completed_at": null,
+    "completed_at": "2026-10-01T10:04:07-04:00",
     "auto_decisions": [
       {
         "id": "ad1",
@@ -444,7 +481,53 @@
         "phase": "7",
         "decision": "merged wave 2: task 2 -> local main; not pushed (PR at end per user)",
         "reason": "resume policy ad4"
+      },
+      {
+        "id": "ad6",
+        "timestamp": "2026-10-01T10:03:39-04:00",
+        "phase": "7.5",
+        "decision": "security audit: 2 findings (low, info), 0 remediated, 2 carried",
+        "reason": "policy: remediate only severity>=medium and confidence>=medium"
+      },
+      {
+        "id": "ad7",
+        "timestamp": "2026-10-01T10:04:07-04:00",
+        "phase": "7.6",
+        "decision": "quality review clean; 7.65 skipped (no open deferrals); 7.7 skipped (no charter)",
+        "reason": "policy"
       }
     ]
-  }
+  },
+  "security_findings": [
+    {
+      "status": "deferred",
+      "justification": "",
+      "remediation_task_id": "",
+      "remediated_at": null,
+      "discovered_at": "2026-10-01T10:03:43-04:00",
+      "id": "sec1",
+      "severity": "low",
+      "category": "supply-chain",
+      "location": "Dockerfile:5-6,36",
+      "evidence": "FROM cgr.dev/chainguard/node:latest-dev AS builder / FROM cgr.dev/chainguard/node:latest AS runner",
+      "description": "Base images float on :latest from the public catalog; an unverified upstream publish or major Node bump flows to production. Accepted by owner (free tier cannot pin).",
+      "remediation": "Optional: cosign verify the base image before build, or log the resolved digest at build time.",
+      "confidence": "medium"
+    },
+    {
+      "status": "deferred",
+      "justification": "",
+      "remediation_task_id": "",
+      "remediated_at": null,
+      "discovered_at": "2026-10-01T10:03:44-04:00",
+      "id": "sec2",
+      "severity": "info",
+      "category": "access-control",
+      "location": ".github/workflows/deploy.yml:25",
+      "evidence": "id-token: write remains on claude.yml and claude-code-review.yml",
+      "description": "id-token: write remains on claude.yml and claude-code-review.yml where the runbook says it is unused; follow-up still open.",
+      "remediation": "After WIF pin is verified, remove id-token: write from claude.yml and claude-code-review.yml.",
+      "confidence": "low"
+    }
+  ]
 }
