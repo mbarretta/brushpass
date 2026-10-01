@@ -32,8 +32,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   # actually executed and cannot be spoofed by a caller workflow, unlike
   # workflow_ref. This is CEL string equality against the literal claim value
   # GitHub issues (owner/repo/.github/workflows/<file>@<ref>), so no regex
-  # escaping is needed here (contrast the regex-anchored claim_pattern in
-  # .github/chainguard/digestabot.sts.yaml).
+  # escaping is needed here.
   attribute_condition = "assertion.repository == \"${var.github_repository}\" && assertion.ref == \"refs/heads/main\" && assertion.job_workflow_ref == \"${var.github_repository}/.github/workflows/deploy.yml@refs/heads/main\""
 
   oidc {
