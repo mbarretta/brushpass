@@ -14,7 +14,7 @@
     "@google-cloud/storage": "^8.4.0",
     "@noble/hashes": "^2.4.0",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.0.3",
     "google-auth-library": "^11.3.2",
     "jose": "^6.2.15",
     "next": "16.4.4",
