@@ -485,7 +485,7 @@ Then point the backend at it in `terraform/main.tf` (`backend "gcs" { bucket = .
 | `terraform/main.tf` | Backend bucket name (from **a**). |
 | `terraform/dns.tf` | The zone and hostname are literal (`cgr-pubsec.dev`). Edit them for your domain — or delete the file if you don't want a custom domain. The domain mapping requires domain ownership verified in Google Search Console first. |
 | `terraform/terraform.tfvars` | Everything in Step 1, including `github_repository` and `custom_domain` if applicable. |
-| `.github/workflows/deploy.yml` | `PROJECT_ID`, `REGION`, `IMAGE`, `workload_identity_provider`, `service_account` — the last two come from the `workload_identity_provider` and `deployer_service_account_email` Terraform outputs after the first apply. |
+| GitHub repo variables | `deploy.yml` reads its target from Actions variables, not the file. Set `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_DEPLOYER_SERVICE_ACCOUNT` (the last two are the `workload_identity_provider` and `deployer_service_account_email` Terraform outputs after the first apply); optionally `GCP_REGION` (default `us-central1`), `CLOUD_RUN_SERVICE` (default `fileshare`), and `ARTIFACT_REGISTRY_REPO` (default `cloud-run-source-deploy`). Until `GCP_PROJECT_ID` is set, the deploy job is skipped. |
 
 **c. Register OAuth clients** (Google Cloud Console → Credentials; skip what you don't use):
 
@@ -567,7 +567,7 @@ If SSO is configured, sign in via the login page's SSO button. If the agent flow
 
 ### CI deploys (GitHub Actions via WIF)
 
-Pushes to `main` deploy automatically through `deploy.yml`: the workflow federates its GitHub OIDC token through the WIF provider (no service-account key anywhere) and is pinned three ways — repository, `refs/heads/main`, and `job_workflow_ref` (only `deploy.yml` itself may deploy, not any other workflow with `id-token: write`). After changing `github_repository` or the workflow values (Step 0b), verify with one manual `gh workflow run deploy.yml --ref main`. See `docs/runbooks/wif-claim-pinning.md` before ever touching `wif.tf` — replacing the provider carries a 30-day soft-delete lockout — and `docs/runbooks/branch-protection.md` for the required-checks setup.
+Once the repo variables from Step 0b are set, pushes to `main` deploy automatically through `deploy.yml`: the workflow federates its GitHub OIDC token through the WIF provider (no service-account key anywhere) and is pinned three ways — repository, `refs/heads/main`, and `job_workflow_ref` (only `deploy.yml` itself may deploy, not any other workflow with `id-token: write`). After changing `github_repository` or the workflow values (Step 0b), verify with one manual `gh workflow run deploy.yml --ref main`. See `docs/runbooks/wif-claim-pinning.md` before ever touching `wif.tf` — replacing the provider carries a 30-day soft-delete lockout — and `docs/runbooks/branch-protection.md` for the required-checks setup.
 
 ### Redeployments
 
