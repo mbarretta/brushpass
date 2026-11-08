@@ -1,33 +1,41 @@
-# ── Cloud DNS managed zone ────────────────────────────────────────────────────
-# Zone was created manually via gcloud before Terraform was aware of it.
-# Import with:
-#   terraform import google_dns_managed_zone.cgr_pubsec_dev cgr-pubsec-dev
+# ── Custom domain (optional) ──────────────────────────────────────────────────
+# Everything here is created only when var.custom_domain is set. The Cloud DNS
+# zone is for the custom domain's parent (e.g. fileshare.example.com → zone
+# example.com); point your registrar at the cloud_dns_nameservers output.
+# The domain mapping requires domain ownership verified in Google Search
+# Console before applying.
 
-resource "google_dns_managed_zone" "cgr_pubsec_dev" {
+locals {
+  custom_domain_enabled = var.custom_domain != ""
+  dns_zone_domain       = join(".", slice(split(".", var.custom_domain), 1, length(split(".", var.custom_domain))))
+}
+
+resource "google_dns_managed_zone" "custom_domain" {
+  count       = local.custom_domain_enabled ? 1 : 0
   project     = var.project_id
-  name        = "cgr-pubsec-dev"
-  dns_name    = "cgr-pubsec.dev."
-  description = "Public zone for cgr-pubsec.dev"
+  name        = replace(local.dns_zone_domain, ".", "-")
+  dns_name    = "${local.dns_zone_domain}."
+  description = "Public zone for ${local.dns_zone_domain}"
   visibility  = "public"
 }
 
-# ── CNAME: fileshare.cgr-pubsec.dev → ghs.googlehosted.com ──────────────────
+# ── CNAME: custom domain → ghs.googlehosted.com ───────────────────────────────
 resource "google_dns_record_set" "fileshare_cname" {
+  count        = local.custom_domain_enabled ? 1 : 0
   project      = var.project_id
-  managed_zone = google_dns_managed_zone.cgr_pubsec_dev.name
-  name         = "fileshare.cgr-pubsec.dev."
+  managed_zone = google_dns_managed_zone.custom_domain[0].name
+  name         = "${var.custom_domain}."
   type         = "CNAME"
   ttl          = 300
   rrdatas      = ["ghs.googlehosted.com."]
 }
 
-# ── Cloud Run domain mapping ───────────────────────────────────────────────────
-# Requires domain ownership verified in Google Search Console before applying.
-
+# ── Cloud Run domain mapping ──────────────────────────────────────────────────
 resource "google_cloud_run_domain_mapping" "fileshare" {
+  count    = local.custom_domain_enabled ? 1 : 0
   project  = var.project_id
   location = var.region
-  name     = "fileshare.cgr-pubsec.dev"
+  name     = var.custom_domain
 
   metadata {
     namespace = var.project_id

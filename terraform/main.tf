@@ -19,8 +19,11 @@ terraform {
   # "Deploy to GCP with Terraform" Step 0; history in
   # docs/runbooks/tfstate-migration.md) — Terraform never manages its own
   # backend bucket, since that would be a bootstrap cycle.
+  #
+  # The bucket is environment-specific, so it is not set here: copy
+  # backend.hcl.example to backend.hcl (gitignored), set your bucket, and init
+  # with `terraform init -backend-config=backend.hcl` (deploy.sh does this).
   backend "gcs" {
-    bucket = "pubsec-fileshare-tfstate"
     prefix = "terraform/state"
   }
 }

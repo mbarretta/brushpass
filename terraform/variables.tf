@@ -15,8 +15,7 @@ variable "region" {
 
 variable "github_repository" {
   type        = string
-  default     = "mbarretta/brushpass"
-  description = "owner/repo allowed to federate via Workload Identity and deploy."
+  description = "owner/repo allowed to federate via Workload Identity and deploy (e.g. your-org/brushpass). No default: Workload Identity grants this repo deploy rights in your project, so it must be set explicitly."
 }
 
 # ── Image ─────────────────────────────────────────────────────────────────────
@@ -36,12 +35,12 @@ variable "create_file_bucket" {
 
 variable "file_bucket_name" {
   type        = string
-  description = "Name of the GCS bucket used for uploaded files (e.g. pubsec-fileshare)."
+  description = "Name of the GCS bucket used for uploaded files (e.g. my-project-fileshare)."
 }
 
 variable "db_bucket_name" {
   type        = string
-  description = "Name of the GCS bucket used for the SQLite FUSE volume (e.g. pubsec-fileshare-db). Always created by Terraform."
+  description = "Name of the GCS bucket used for the SQLite FUSE volume (e.g. my-project-fileshare-db). Always created by Terraform."
 }
 
 variable "allow_dev_cors_origin" {
@@ -89,7 +88,7 @@ variable "auth_url" {
   description = <<-EOT
     The public browser-facing base URL of the app, emitted as the AUTH_URL env
     var for NextAuth. Set it to the custom domain when one is mapped (e.g.
-    https://fileshare.cgr-pubsec.dev), otherwise to the service's run.app URL.
+    https://fileshare.example.com), otherwise to the service's run.app URL.
 
     This must be set for interactive SSO to work. next-auth's forwarded-host
     detection only covers some code paths (server actions); the OAuth callback
@@ -201,7 +200,12 @@ variable "revoke_project_secret_accessor" {
 variable "custom_domain" {
   type        = string
   default     = ""
-  description = "Custom domain hostname (e.g. fileshare.cgr-pubsec.dev). When set, added to GCS CORS allowed origins alongside the run.app URI. Set in terraform.tfvars."
+  description = "Custom domain hostname (e.g. fileshare.example.com). When set, Terraform creates a Cloud DNS zone for its parent domain, a CNAME, and a Cloud Run domain mapping (dns.tf), and adds it to GCS CORS allowed origins. Leave \"\" for no custom domain."
+
+  validation {
+    condition     = var.custom_domain == "" || length(split(".", var.custom_domain)) >= 3
+    error_message = "custom_domain must be a subdomain such as fileshare.example.com (Cloud Run domain mappings use a CNAME, which an apex domain cannot have)."
+  }
 }
 
 # ── Artifact Registry ─────────────────────────────────────────────────────────

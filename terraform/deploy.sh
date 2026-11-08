@@ -57,7 +57,11 @@ echo "==> Initializing Terraform..."
 # Plain init, NOT -upgrade: .terraform.lock.hcl is tracked in git and pins
 # provider versions/hashes. Bumping a provider is a deliberate act — run
 # `terraform init -upgrade` by hand and commit the lock-file diff.
-terraform init
+if [ ! -f backend.hcl ]; then
+  echo "ERROR: terraform/backend.hcl not found. Copy backend.hcl.example to backend.hcl and set your state bucket." >&2
+  exit 1
+fi
+terraform init -backend-config=backend.hcl
 
 # ── Import Artifact Registry repo if it already exists ────────────────────────
 # gcloud run deploy --source creates this repo automatically on a first deploy;

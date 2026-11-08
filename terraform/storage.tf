@@ -1,7 +1,7 @@
 # ── File-storage bucket ───────────────────────────────────────────────────────
 # Either create it (create_file_bucket = true) or read the pre-existing bucket
-# as a data source (create_file_bucket = false, the default for pubsec-se where
-# gs://pubsec-fileshare already exists).
+# as a data source (create_file_bucket = false, the default, for a bucket that
+# already exists).
 
 resource "google_storage_bucket" "fileshare_files" {
   count = var.create_file_bucket ? 1 : 0
