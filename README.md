@@ -5,11 +5,7 @@
 
 Brushpass is a self-hosted secure file transfer tool. Authenticated users upload files to GCP Cloud Storage and receive a shareable URL plus a one-time-shown download token. Anyone with the URL and token can download the file — no account required. Files can have optional TTLs with active cleanup. An admin panel provides file management, expiration control, download metrics, and user management.
 
-## Chainguard security stack
-
-Brushpass uses Chainguard throughout the container and dependency supply chain.
-
-### Base images
+## Chainguard base images
 
 The Docker build uses two Chainguard Container images:
 
@@ -20,13 +16,7 @@ FROM cgr.dev/chainguard/node:latest AS runner   # runtime stage — minimal, dis
 
 Both images are rebuilt nightly from source with zero known CVEs at release time and ship with Sigstore signatures and SBOMs. The multi-stage build means the final runtime image contains only the Node.js runtime and application files — no compiler toolchain, no package manager, no shell.
 
-### npm dependencies (Chainguard Libraries for JavaScript)
-
-The production npm dependencies in [`package.json`](./package.json) are available in the [Chainguard Libraries for JavaScript](https://edu.chainguard.dev/chainguard/libraries/javascript/overview/) registry at their exact pinned versions. This list is intentionally not duplicated here as a version table — `package.json`'s `dependencies` field is the single source of truth for what's installed and at what version, and a hand-maintained copy goes stale the moment a dependency is bumped (as happened here: this section previously pinned `next` and `next-auth` versions several releases behind what was actually installed).
-
-Chainguard Libraries rebuilds every package from its original source repository in a hardened SLSA L2 build environment rather than downloading pre-compiled artifacts from the public npm registry. Each package ships with Sigstore signatures and SLSA provenance attestations. This eliminates the class of supply-chain attacks where malware is injected into a registry artifact after the legitimate source code was written — [~99% of known malicious npm packages by that vector](https://www.chainguard.dev/unchained/mitigating-malware-in-the-npm-ecosystem-with-chainguard-libraries).
-
-You can verify any installed package with `chainctl libraries verify $(npm config get cache)` — note that this repo's `.npmrc` pins installs to the public npm registry (see [Dependency security scanning](#dependency-security-scanning)) so CI never depends on Chainguard registry credentials it doesn't have; to populate the cache from Chainguard Libraries instead for local verification, use `npm ci --registry=https://libraries.cgr.dev/javascript/` — `npm ci` fills the cache without rewriting `package-lock.json`'s resolved URLs, which is exactly the hazard the repo `.npmrc` exists to prevent (`npm install --registry=...` would rewrite them).
+npm dependencies install from the public npm registry; [`.npmrc`](./.npmrc) pins it so a machine-wide registry setting can't rewrite `package-lock.json`.
 
 ---
 
