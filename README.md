@@ -476,15 +476,14 @@ gcloud storage buckets create gs://YOUR-TFSTATE-BUCKET \
 gcloud storage buckets update gs://YOUR-TFSTATE-BUCKET --versioning
 ```
 
-Then point the backend at it in `terraform/main.tf` (`backend "gcs" { bucket = ... }`).
+Then point the backend at it: `cp terraform/backend.hcl.example terraform/backend.hcl` and set `bucket`. `backend.hcl` is gitignored; `deploy.sh` runs `terraform init -backend-config=backend.hcl`.
 
-**b. Adapt the environment-specific files.** This repo carries its home environment's values; a new environment must change:
+**b. Environment-specific settings.** The repo carries no project values; each environment supplies its own in two gitignored files and the GitHub repo variables:
 
-| File | What to change |
+| Where | What goes in it |
 |---|---|
-| `terraform/main.tf` | Backend bucket name (from **a**). |
-| `terraform/dns.tf` | The zone and hostname are literal (`cgr-pubsec.dev`). Edit them for your domain — or delete the file if you don't want a custom domain. The domain mapping requires domain ownership verified in Google Search Console first. |
-| `terraform/terraform.tfvars` | Everything in Step 1, including `github_repository` and `custom_domain` if applicable. |
+| `terraform/backend.hcl` | State bucket name (from **a**). |
+| `terraform/terraform.tfvars` | Everything in Step 1, including `github_repository` and, optionally, `custom_domain`. Setting `custom_domain` (e.g. `fileshare.example.com`) creates the Cloud DNS zone, CNAME, and domain mapping; the mapping requires domain ownership verified in Google Search Console first. |
 | GitHub repo variables | `deploy.yml` reads its target from Actions variables, not the file. Set `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_DEPLOYER_SERVICE_ACCOUNT` (the last two are the `workload_identity_provider` and `deployer_service_account_email` Terraform outputs after the first apply); optionally `GCP_REGION` (default `us-central1`), `CLOUD_RUN_SERVICE` (default `fileshare`), and `ARTIFACT_REGISTRY_REPO` (default `cloud-run-source-deploy`). Until `GCP_PROJECT_ID` is set, the deploy job is skipped. |
 
 **c. Register OAuth clients** (Google Cloud Console → Credentials; skip what you don't use):

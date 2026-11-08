@@ -228,7 +228,7 @@ resource "google_cloud_run_v2_service" "fileshare" {
     # loudly instead of silently shipping a stale audience to the cleanup
     # route's OIDC check. auth_url is deliberately NOT asserted here: it is the
     # browser-facing base URL and may be a custom domain (e.g.
-    # https://fileshare.cgr-pubsec.dev) that never matches self.uri.
+    # https://fileshare.example.com) that never matches self.uri.
     postcondition {
       condition     = var.cleanup_audience == "" || self.uri == var.cleanup_audience
       error_message = "google_cloud_run_v2_service.fileshare.uri (${self.uri}) no longer matches var.cleanup_audience (${var.cleanup_audience}) — the service was likely recreated with a new URL. Update cleanup_audience in terraform.tfvars to the new uri and re-apply; the previous CLEANUP_AUDIENCE is now stale (scheduler.tf re-pins the job's own oidc_token audience automatically)."

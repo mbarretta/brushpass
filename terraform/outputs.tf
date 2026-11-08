@@ -34,13 +34,13 @@ output "docker_push_command" {
 }
 
 output "custom_domain_url" {
-  description = "Custom domain URL for the fileshare service."
-  value       = "https://fileshare.cgr-pubsec.dev"
+  description = "Custom domain URL for the fileshare service (null when custom_domain is unset)."
+  value       = var.custom_domain != "" ? "https://${var.custom_domain}" : null
 }
 
 output "cloud_dns_nameservers" {
-  description = "Google Cloud DNS nameservers — set these at your domain registrar."
-  value       = google_dns_managed_zone.cgr_pubsec_dev.name_servers
+  description = "Google Cloud DNS nameservers — set these at your domain registrar (null when custom_domain is unset)."
+  value       = one(google_dns_managed_zone.custom_domain[*].name_servers)
 }
 
 # ── CI/CD (Workload Identity Federation) ──────────────────────────────────────

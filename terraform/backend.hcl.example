@@ -1,0 +1,5 @@
+# Copy to backend.hcl (gitignored) and set the GCS bucket that holds Terraform
+# state. Create the bucket by hand first — see README.md "Deploy to GCP with
+# Terraform" Step 0. Then: terraform init -backend-config=backend.hcl
+
+bucket = "YOUR-TFSTATE-BUCKET"

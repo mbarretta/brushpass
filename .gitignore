@@ -62,6 +62,7 @@ tmp/
 # versions and hashes and must be tracked in git (see
 # docs/runbooks/tfstate-migration.md).
 terraform/terraform.tfvars
+terraform/backend.hcl
 terraform/.terraform/
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup

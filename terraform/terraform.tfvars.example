@@ -5,20 +5,23 @@
 
 # ── Required ──────────────────────────────────────────────────────────────────
 
-project_id = "pubsec-se"
+project_id = "my-project"
 region     = "us-central1"
 
 # Build and push the image before applying. The docker_push_command output
 # shows the exact command to use after the first apply.
-container_image = "us-central1-docker.pkg.dev/pubsec-se/cloud-run-source-deploy/fileshare:latest"
+container_image = "us-central1-docker.pkg.dev/my-project/cloud-run-source-deploy/fileshare:latest"
 
-# Set to false if the file-storage bucket already exists (e.g. pubsec-fileshare
-# in the pubsec-se project). Set to true to have Terraform create it.
-create_file_bucket = false
-file_bucket_name   = "pubsec-fileshare"
+# Set to false if the file-storage bucket already exists. Set to true to have
+# Terraform create it.
+create_file_bucket = true
+file_bucket_name   = "my-project-fileshare"
 
 # The SQLite FUSE volume bucket — always created by Terraform.
-db_bucket_name = "pubsec-fileshare-db"
+db_bucket_name = "my-project-fileshare-db"
+
+# owner/repo allowed to deploy via Workload Identity Federation (deploy.yml).
+github_repository = "your-org/brushpass"
 
 # NOTE: the Terraform-managed admin bootstrap (bootstrap_admin_user/_pass and
 # the fileshare-bootstrap job) was retired 2026-08-14. For the first admin in a
@@ -109,18 +112,14 @@ oidc_client_secret = ""   # SENSITIVE — do not commit
 # allow_dev_cors_origin = false
 
 # ── Custom domain (optional) ──────────────────────────────────────────────────
-# When set, this hostname is added to the GCS bucket CORS policy so that
-# browser XHR uploads from the custom domain are allowed. Note: the DNS zone
-# and Cloud Run domain mapping themselves live in dns.tf with LITERAL names —
-# a new environment must edit (or delete) that file, not just this variable.
+# When set, Terraform creates a Cloud DNS zone for the parent domain
+# (example.com), a CNAME, and a Cloud Run domain mapping, and adds the hostname
+# to the GCS CORS policy. Verify domain ownership in Google Search Console
+# first. Leave unset to use the run.app URL only.
 
 # custom_domain = "fileshare.example.com"
 
 # ── Optional overrides ────────────────────────────────────────────────────────
-
-# owner/repo allowed to deploy via Workload Identity Federation (deploy.yml).
-# Change this when deploying from a fork or a new repository.
-# github_repository = "mbarretta/brushpass"
 
 # cloud_run_service_name = "fileshare"
 # cloud_run_memory       = "512Mi"
